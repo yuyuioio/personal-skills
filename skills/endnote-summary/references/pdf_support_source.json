@@ -1,0 +1,9 @@
+{
+  "upstream": "https://github.com/openai/skills/tree/77963424cd7687fd52e5fcfdd3f08d826ab9b1ab/skills/.curated/pdf",
+  "commit": "77963424cd7687fd52e5fcfdd3f08d826ab9b1ab",
+  "retrieved_on": "2026-10-15",
+  "installer": "skill-installer/install-skill-from-github.py",
+  "skill_sha256": "d108cf2b36355ab37eb5962933f4d09785ec002f3105c506129320209306b9d2",
+  "license": "Apache-2.0",
+  "modifications": "None. Applied only to read-only PDF rendering/extraction; endnote-summary controls output layout and reading scope."
+}

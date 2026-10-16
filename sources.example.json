@@ -1,0 +1,52 @@
+{
+  "sources": [
+    {
+      "destination": "skills/data-pro-jv",
+      "path": "/path/to/installed/skills/data-pro-jv"
+    },
+    {
+      "destination": "skills/data-pro-thickness-calibration",
+      "path": "/path/to/installed/skills/data-pro-thickness-calibration"
+    },
+    {
+      "destination": "skills/endnote-summary",
+      "path": "/path/to/installed/skills/endnote-summary"
+    },
+    {
+      "destination": "skills/literature-review",
+      "path": "/path/to/installed/skills/literature-review"
+    },
+    {
+      "destination": "skills/markitdown",
+      "path": "/path/to/installed/skills/markitdown"
+    },
+    {
+      "destination": "skills/pdf",
+      "path": "/path/to/installed/skills/pdf"
+    },
+    {
+      "destination": "skills/reverse-engineer-anything",
+      "path": "/path/to/installed/skills/reverse-engineer-anything"
+    },
+    {
+      "destination": "skills/web-automation",
+      "path": "/path/to/installed/skills/web-automation"
+    },
+    {
+      "destination": "skills/matlab_draw",
+      "path": "/path/to/installed/skills/matlab_draw"
+    },
+    {
+      "destination": "tests/endnote-summary",
+      "path": "/path/to/installed/tests/endnote-summary"
+    },
+    {
+      "destination": "tests/source-context",
+      "path": "/path/to/installed/tests/source-context"
+    },
+    {
+      "destination": "third_party/scientific-agent-skills",
+      "path": "/path/to/installed/third_party/scientific-agent-skills"
+    }
+  ]
+}

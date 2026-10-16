@@ -1,0 +1,2 @@
+# Preserve installed bytes, including line endings, for accurate rollback/hashes.
+* -text

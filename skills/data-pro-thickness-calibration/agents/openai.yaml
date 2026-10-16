@@ -1,0 +1,4 @@
+interface:
+  display_name: "data-pro-thickness-calibration"
+  short_description: "整理镀膜仪显示厚度与椭偏测试结果，计算均值、标准差和相对偏差"
+  default_prompt: "使用 $data-pro-thickness-calibration 处理本次镀膜仪厚度校准数据，输出包含原始显示厚度、测试厚度及两者差距的 Excel 表格。"

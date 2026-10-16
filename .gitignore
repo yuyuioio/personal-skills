@@ -1,0 +1,12 @@
+local-sources.json
+.local-backups/
+.scratch/
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+.env
+.env.*
+*.log
+Thumbs.db
+.DS_Store

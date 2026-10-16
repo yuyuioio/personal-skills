@@ -1,0 +1,6 @@
+interface:
+  display_name: "matlab_draw"
+  short_description: "通过已配置的本机 MATLAB 桥接自动读取科研数据、绘图并验证导出文件"
+  default_prompt: "使用 $matlab_draw 检查 MATLAB 固定桥接，然后根据我提供的数据和要求绘图并保存可编辑结果。"
+policy:
+  allow_implicit_invocation: true
