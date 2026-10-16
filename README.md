@@ -63,3 +63,13 @@ python scripts/skill_versions.py save -m "恢复 endnote-summary 到指定版本
 任务使用本机安装目录，需要电脑开机、Codex 运行、相关目录和网络可用。该计划保存在 Codex 应用中，不是 Windows 后台任务；关闭应用后不保证执行。计划中的新增 skill 识别由聊天任务处理，独立运行保存脚本仍只读取 `local-sources.json` 配置范围。
 
 可以在 Codex 的定时任务中暂停、修改或删除，也可在原聊天中提出调整。任务标识：`skills-github`。
+
+## 共享目录
+
+2026-10-16，版本库已迁至 `C:\Users\13204\CodexShared\personal-skills`。Git 历史、私有远程仓库、实际 skill 来源清单均保留。旧位置 `Z:\user\desktop\paper\ChatGPT_Paper\personal-skills` 为兼容目录联接，统一指向新位置。
+
+用户已批准将新目录加入本机 Codex 全局 `sandbox_workspace_write.writable_roots`。重启 Codex 并让对话加载新配置后，使用该默认配置的本地对话可以从其他工作目录访问共享版本库。全局 `AGENTS.md` 已同步默认保存位置。
+
+此配置不授予其他机器或云端对话访问本机磁盘的能力，也不能覆盖更严格的项目或组织权限。Git 元数据目录仍受平台保护，提交和上传需要时继续通过正常授权流程执行。
+
+跨工作目录的有效配置已核对包含新路径。独立沙盒执行测试遇到运行组件被占用，在命令开始前失败，尚未完成受限沙盒内的读写与提交验证。配置及原仓库备份保留在原工作区的 `.reading-tmp/shared-skill-migration/`。
