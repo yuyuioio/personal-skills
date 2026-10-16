@@ -66,10 +66,10 @@ python scripts/skill_versions.py save -m "恢复 endnote-summary 到指定版本
 
 ## 共享目录
 
-2026-10-16，版本库已迁至 `C:\Users\13204\CodexShared\personal-skills`。Git 历史、私有远程仓库、实际 skill 来源清单均保留。旧位置 `Z:\user\desktop\paper\ChatGPT_Paper\personal-skills` 为兼容目录联接，统一指向新位置。
+2026-10-16，版本库已迁至 `C:\Users\13204\CodexShared\personal-skills`。Git 历史、私有远程仓库、实际 skill 来源清单均保留。旧位置 `Z:\user\desktop\paper\ChatGPT_Paper\personal-skills` 的兼容联接及迁移前旧仓库副本已按用户要求删除，后续仅使用上述共享目录。
 
 用户已批准将新目录加入本机 Codex 全局 `sandbox_workspace_write.writable_roots`。重启 Codex 并让对话加载新配置后，使用该默认配置的本地对话可以从其他工作目录访问共享版本库。全局 `AGENTS.md` 已同步默认保存位置。
 
 此配置不授予其他机器或云端对话访问本机磁盘的能力，也不能覆盖更严格的项目或组织权限。Git 元数据目录仍受平台保护，提交和上传需要时继续通过正常授权流程执行。
 
-已使用桌面应用实际运行时，从另一个工作目录启动受限沙盒：验证了共享目录的文件读写、在隔离测试子目录中创建 Git 提交，以及读取 9 个实际 skill 来源并与快照一致。共享主仓库的保存和 GitHub 上传也已验证。现有对话应重新加载更新后的配置；必要时重启 Codex。配置及原仓库备份保留在原工作区的 `.reading-tmp/shared-skill-migration/`。
+已使用桌面应用实际运行时，从另一个工作目录启动受限沙盒：验证了共享目录的文件读写、在隔离测试子目录中创建 Git 提交，以及读取 9 个实际 skill 来源并与快照一致。共享主仓库的保存和 GitHub 上传也已验证。现有对话应重新加载更新后的配置；必要时重启 Codex。配置备份保留在原工作区的 `.reading-tmp/shared-skill-migration/`；迁移前旧仓库副本已删除，Git 历史保留在当前共享仓库和 GitHub 中。
