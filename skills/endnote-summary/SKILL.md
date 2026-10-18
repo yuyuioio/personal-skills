@@ -2,9 +2,9 @@
 name: endnote-summary
 description: Finds and reads article full text and SI, verifies identity, names paper-summary chats with the original article title and DOI, and saves Chinese summaries as original-title-and-DOI Markdown files in fresh per-paper folders for manual EndNote attachment. Explains every main-text figure and table plus important SI figures/tables panel by panel, embeds source-PDF crops beside the explanations, and covers innovations, results, and testing principles. Use for 文献阅读、论文总结、全文及SI下载、补充材料解读、文献比较 and EndNote笔记; requests necessary access when downloads are blocked.
 license: MIT
-compatibility: Web search plus an available browser or HTTP download tool and a writable folder for online acquisition. Python 3.10+ with pypdf; pypdfium2 and Pillow for source-page crops; optional OCR and SI readers. Restricted articles may require the user's existing institutional/publisher access. EndNote is not required to generate summaries.
+compatibility: Web search plus an available external browser (Edge/Chrome or the user's chosen browser) for SI discovery/download, and readable download locations plus a writable article folder. Python 3.10+ with pypdf; pypdfium2 and Pillow for source-page crops; optional OCR and SI readers. Restricted articles may require the user's existing institutional/publisher access. EndNote is not required to generate summaries.
 metadata:
-  version: "2.7"
+  version: "2.8"
 ---
 
 # 自动获取全文及 SI，阅读后生成 EndNote 手动附件
@@ -21,7 +21,7 @@ metadata:
 
 默认生成文件作为文献总结附件，由用户手动添加 `文献原始标题__DOI.md` 到已有 EndNote 条目的 File Attachments。不要启动 EndNote、导出 XML、备份整个库、调用桌面控制或执行写回来完成普通总结。
 
-默认主动上网定位并下载**文章全文和该篇 SI**，无需用户额外说“下载 SI”。输入可以是 DOI、题名、文章网址或本地 PDF。已有同版本全文可核验后复用，仍要查看出版社的补充材料列表并下载 SI。公开可访问资料直接获取；实际遇到网络权限、登录、机构订阅或验证码阻碍时，说明被阻文件与原因，按 [references/acquisition.md](references/acquisition.md) 请求必要授权或人工登录。不保证授权能获得不存在或无订阅的资料，不用摘要替代全文。
+默认主动上网定位并下载**文章全文和该篇 SI**，无需用户额外说“下载 SI”。输入可以是 DOI、题名、文章网址或本地 PDF。已有同版本全文可核验后复用，仍要查看出版社的补充材料列表并下载 SI。**涉及查找或下载 SI，均先在外部浏览器（Edge/Chrome 或用户指定浏览器）打开出版社页面和真实附件链接并尝试，沿用用户已有登录会话，不以应用内浏览器或 HTTP 直连替代这一步。** 下载可落在桌面或桌面的 `download` 文件夹；点击后先检查实际下载目录，确认文件完成且属于本篇，再复制到文献文件夹，保留原下载文件。具体定位与核验见 [references/acquisition.md](references/acquisition.md)。公开可访问资料直接获取；实际遇到网络权限、登录、机构订阅或验证码阻碍时，说明被阻文件与原因，按 [references/acquisition.md](references/acquisition.md) 请求必要授权或人工登录。不保证授权能获得不存在或无订阅的资料，不用摘要替代全文。
 
 PDF 图表读取阶段，先读取并应用随包保留的 [OpenAI 官方 PDF 技能](references/pdf_support.md)，仅使用其页面渲染、文本/表格提取及视觉核对部分；本技能决定输出目录、命名和阅读范围；截图验收以本技能“默认提速与节省 token”为准，不套用新建 PDF 的美化或零版式缺陷要求。当前环境已安装 `pdf` / `pdf:pdf` 时可直接调用对应读取能力，缺少 Poppler 时本包裁剪脚本可用 pypdfium2。解释“测试为什么支持结论”时，调用本机可用的 `scientific-critical-thinking` 技能的主张—证据、混杂和替代解释部分；若该辅助技能不可用，使用本包 [references/critical_appraisal.md](references/critical_appraisal.md)。复杂图形的截轴、色标、归一化疑点再按需调用 `scientific-visualization` 的审查部分。检索和服务连接按需使用，不因存在技能文件就宣称工具已连接。整合来源见 [references/integration_sources.md](references/integration_sources.md)。
 
@@ -42,7 +42,7 @@ PDF 图表读取阶段，先读取并应用随包保留的 [OpenAI 官方 PDF �
 
 ## 工作流程
 
-1. 先确认目标文章身份和可写存储根路径，然后按 [references/acquisition.md](references/acquisition.md) 打开 DOI/出版社落地页，获取全文 PDF 与页面真实列出的 SI/Supporting Information/Additional files。题名输入先核对作者/年份；本地 PDF 输入先检查首页身份。身份未确定时可在临时目录提取，标题和 DOI 确定后建立本次的“标题＋DOI”文件夹；原始用户文件保留在原处，必要时复制到新文件夹并核对哈希。核验下载的格式、可读性及版本，并记录每份文件的 URL、路径、哈希与取得/阅读状态；缺少权限时请求所需授权，继续已可读部分。标准阅读包含正文全部图表及其子图、SI 方法和经重要性筛选的补充图表；先建立正文/SI 图表清单，核对每项的页码、面板、选取理由、原图资源和解释状态。快读/逐图精读按用户要求调整，不把摘要或未读 SI 声称为全文精读。
+1. 先确认目标文章身份和可写存储根路径，然后按 [references/acquisition.md](references/acquisition.md) 打开 DOI/出版社落地页，获取全文 PDF 与页面真实列出的 SI/Supporting Information/Additional files；SI 的查找及下载使用外部浏览器，并核查桌面或桌面 `download` 等实际下载位置。题名输入先核对作者/年份；本地 PDF 输入先检查首页身份。身份未确定时可在临时目录提取，标题和 DOI 确定后建立本次的“标题＋DOI”文件夹；原始用户文件保留在原处，必要时复制到新文件夹并核对哈希。核验下载的格式、可读性及版本，并记录每份文件的 URL、路径、哈希与取得/阅读状态；缺少权限时请求所需授权，继续已可读部分。标准阅读包含正文全部图表及其子图、SI 方法和经重要性筛选的补充图表；先建立正文/SI 图表清单，核对每项的页码、面板、选取理由、原图资源和解释状态。快读/逐图精读按用户要求调整，不把摘要或未读 SI 声称为全文精读。
 
 2. 对下载或核验复用的主 PDF 从本技能目录运行提取，优先已有含 `pypdf` 的 Python 环境：
 
