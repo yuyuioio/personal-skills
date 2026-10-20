@@ -47,6 +47,10 @@
     {
       "destination": "third_party/scientific-agent-skills",
       "path": "/path/to/installed/third_party/scientific-agent-skills"
+    },
+    {
+      "destination": "tests/data-pro-jv",
+      "path": "/path/to/local/tests/data-pro-jv"
     }
   ]
 }

@@ -12,15 +12,16 @@
     "matlab_draw"
   ],
   "files": {
-    "skills/data-pro-jv/SKILL.md": "ef48e47aa172ac6e43d9792e4d2903906f842315d02bdf1b619c442ae9b4e64c",
-    "skills/data-pro-jv/agents/openai.yaml": "264e3583e702237f69167e2882791ab4413a175bf47b5d49bfa783ee4526fa8f",
-    "skills/data-pro-jv/references/metric-selection.md": "e4a2cc41fc35b12dd8784c779ae8102c99eb1b18b435092dd3d387fd802e49b9",
-    "skills/data-pro-jv/references/repeated-measurements.md": "4135e4c3b8ed59ff69c47750e848df55a44d66187f2e7e2c4d6f282a3c6206af",
-    "skills/data-pro-jv/scripts/build_workbook.mjs": "59465b183d3ad6131b3ccd34efd216880156cbb04112cae7f53850a9f81c813b",
+    "skills/data-pro-jv/SKILL.md": "593aa073155ebb377f7d99b88772b6f864d7bc5f6d5eafb720d13775f291f119",
+    "skills/data-pro-jv/agents/openai.yaml": "6aef1bad674f20cdfb2222b54344ff73f7cd6d1786d93332a461c6ea6cfd3de4",
+    "skills/data-pro-jv/references/metric-selection.md": "cfa92a04889522f4c2952158dd9c731618be88742fc743ad67bb184fe95ca499",
+    "skills/data-pro-jv/references/repeated-measurements.md": "01a1bd71441f39dd6239a582c0f8a627c937530417a42d430565d447411263f3",
+    "skills/data-pro-jv/scripts/build_workbook.mjs": "f721c001f3d9f50329719acedd2cf9aaa8b8c35fa36da0e8e7a2a79f7c5b3bff",
     "skills/data-pro-jv/scripts/extract_jv.py": "41278766da1c9c7d1264d40332633198d3032f0a9fb28e696fea833db0bfdc7e",
-    "skills/data-pro-jv/scripts/finalize_workbook.py": "c4bfcbeed0950c9216a5cba93c1c41ba0fc2010dd15448c4b6600619d9d32b21",
+    "skills/data-pro-jv/scripts/finalize_workbook.py": "ecfb09e4666d73b23d5d1c6af7843978f99833c61126149035e3301aa6b635ed",
     "skills/data-pro-jv/scripts/merge_batches.py": "7983d5d1fa272419f4804e90887671216154096b163f30d16212cbca319c5fb3",
-    "skills/data-pro-jv/scripts/select_metrics.py": "d3dee9141ad15fcc5859211e3c1b74eba460a31fc04d40e5eb93f5ec00ebf9a4",
+    "skills/data-pro-jv/scripts/select_metrics.py": "a83f690903d8b158f138ecfa6afc46bf307ce7753c896936663e3f36a09a626e",
+    "skills/data-pro-jv/scripts/select_repeated.py": "a1ce356b4f297f648c2b60ea804b5972842eb35cbf830bdd882dba7dafff786b",
     "skills/data-pro-thickness-calibration/SKILL.md": "d26827984f3abd1623284117df0044d462d1047b68ef0274cb849c5f9ac699a2",
     "skills/data-pro-thickness-calibration/agents/openai.yaml": "1066f6ec673c8ec4cb3def1cead21e0deb5f094ba77b043419f6bfca7355a89e",
     "skills/data-pro-thickness-calibration/scripts/calibrate.py": "bca826d9ba29439625e02044d6c306ea3b10c94cdcd89658dce2f6e685bf565c",
@@ -93,6 +94,8 @@
     "tests/endnote-summary/test_figure_assets.py": "fc34d1db95124010591f38071e772ca422f2a096f9a8c509ef5b71fc00b5ab59",
     "tests/endnote-summary/test_scripts.py": "cc3b2c49b23cf706ae84ca14eca6b118813e176d3e1cbe6dece31089b4bbe077",
     "tests/source-context/skill-requirements.toml": "68ee61431816c9216f7e49ec1db1152b332223acb80ae7d37a9367d842a2cc55",
-    "third_party/scientific-agent-skills/LICENSE.md": "5c793d8fe1c553d49c305f3c178ac360b6d32607bdf1bca06b10d3ba9881d78f"
+    "third_party/scientific-agent-skills/LICENSE.md": "5c793d8fe1c553d49c305f3c178ac360b6d32607bdf1bca06b10d3ba9881d78f",
+    "tests/data-pro-jv/test_metrics.py": "0691c0bda361fcc7740effcc478e3a3b0ce31ea18d93935820d31578ad690232",
+    "tests/data-pro-jv/test_selection.py": "e6d1da1f033f773c373bb7be2ecdb2b605f65b37e3572345f42d2f924cc44617"
   }
 }

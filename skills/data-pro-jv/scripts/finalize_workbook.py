@@ -35,10 +35,10 @@ def col_number(label):
 
 
 def verify(workbook,manifest,data):
-    assert manifest.get('version')==5,'Use the version 5 formula-statistics manifest'
+    assert manifest.get('version')==6,'Use the version 6 point-selection and parameter-average manifest'
     expected=select_all(data)
     assert manifest['selection']==expected,'Input selection changed'
-    records={r['id']:r for r in data['uniqueRecords']}
+    records={r['id']:dict(r,**expected['repeatedTests']['annotations'][str(r['id'])]) for r in data['uniqueRecords']}
     with zipfile.ZipFile(workbook) as archive:
         assert archive.testzip() is None
         entries=[(info,archive.read(info.filename)) for info in archive.infolist()]
@@ -46,7 +46,9 @@ def verify(workbook,manifest,data):
     root=E.fromstring(payload['xl/workbook.xml'])
     targets={r.get('Id'):posixpath.normpath(posixpath.join('xl',r.get('Target'))) if not r.get('Target').startswith('/') else r.get('Target').lstrip('/') for r in E.fromstring(payload['xl/_rels/workbook.xml.rels'])}
     sheets={s.get('name'):targets[s.get('{'+NS['r']+'}id')] for s in root.findall('s:sheets/s:sheet',NS)}
-    assert set(sheets)=={'Jsc筛选','Voc筛选','PCE筛选','FF筛选','全部参数','全部原始扫描'}
+    required={'Jsc筛选','Voc筛选','PCE筛选','FF筛选','全部参数','全部原始扫描'}
+    if expected['repeatedTests']['repeatedPointCount']:required.update({'保留结果','重复测试对比'})
+    assert set(sheets)==required
     strings=[]
     if 'xl/sharedStrings.xml' in payload:
         strings=[''.join(t.text or '' for t in si.iter('{'+NS['s']+'}t')) for si in E.fromstring(payload['xl/sharedStrings.xml'])]
@@ -76,13 +78,40 @@ def verify(workbook,manifest,data):
                 source=rec['meta'].get(field['key'])
                 assert (actual is None and source is None) or (actual is not None and source is not None and close(actual,source)),(table['sheet'],p['id'],field['key'])
             assert value(table['sheet'],table_ref(table,p,table['sourceIndex']))==(rec.get('sourceLocation') or None)
-    assert len(manifest['statisticsManifest'])==4
+            for label,key in [('样品编号','sampleId'),('测试点','pointId'),('保留状态','retentionStatus'),('择优依据','repeatReason')]:
+                index=table['labels'].index(label)
+                assert value(table['sheet'],table_ref(table,p,index))==rec.get(key)
+        if table['role'] in ('selected','retained'):
+            assert table['averageRow']==table['dataBottom']+1
+            assert value(table['sheet'],f"A{table['averageRow']}")=='平均值（本表入选记录）'
+            for field in table['metricFields']:
+                letter=column(field['index']+1)
+                refs=f"{letter}{table['start']+1}:{letter}{table['dataBottom']}"
+                ref=f"{letter}{table['averageRow']}"
+                formula=f'=IF(COUNT({refs})=0,"无法计算",AVERAGE({refs}))'
+                assert table['averageFormulas'][ref]==formula
+                cell=cells[table['sheet']].get(ref)
+                assert cell is not None and cell.find('s:f',NS).text.lstrip('=')==formula.lstrip('=')
+                values=[records[p['id']]['meta'].get(field['key']) for p in table['positions']]
+                values=[v for v in values if isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v)]
+                actual=value(table['sheet'],ref)
+                assert (not values and actual=='无法计算') or (values and close(actual,math.fsum(values)/len(values))),(table['sheet'],ref,actual,values)
+    if expected['repeatedTests']['repeatedPointCount']:
+        retained=next(t for t in manifest['tableManifest'] if t['role']=='retained')
+        assert [p['id'] for p in retained['positions']]==expected['repeatedTests']['selectedIds']
+        comparison=next(t for t in manifest['tableManifest'] if t['role']=='repeat-comparison')
+        repeat_ids={i for g in expected['repeatedTests']['groups'] if len(g['recordIds'])>1 for i in g['recordIds']}
+        assert [p['id'] for p in comparison['positions']]==[i for i in records if i in repeat_ids]
+    assert len(manifest['statisticsManifest'])==4+bool(expected['repeatedTests']['repeatedPointCount'])
     for statistics in manifest['statisticsManifest']:
         sheet=statistics['sheet']
         for ref,formula in statistics['formulas'].items():
             node=cells[sheet].get(ref)
             assert node is not None and node.find('s:f',NS) is not None,('Missing live formula',sheet,ref)
             assert node.find('s:f',NS).text.lstrip('=')==formula.lstrip('='),('Wrong formula',sheet,ref)
+        for ref,expected_value in statistics.get('expectedValues',{}).items():
+            actual=value(sheet,ref)
+            assert (expected_value is None and actual=='无法计算') or (expected_value is not None and close(actual,expected_value)),(sheet,ref,actual,expected_value)
     for name,result in expected['metrics'].items():
         sheet=name+'筛选'
         for ref,v in [('B4',result['mean']),('B5',result['mse']),('H5',math.sqrt(result['mse']) if result['mse'] is not None else None),('H4',result['relativeRmse'])]:

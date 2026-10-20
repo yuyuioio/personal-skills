@@ -4,6 +4,7 @@ import json
 import math
 from decimal import Decimal, localcontext
 from pathlib import Path
+from select_repeated import select_repeated
 
 METRICS = [('Jsc', 'Jsc (mA/cm^2)', 'mA/cm²'), ('Voc', 'Voc (V)', 'V'),
            ('PCE', 'Efficiency (%)', '%'), ('FF', 'Fill Factor (%)', '%')]
@@ -69,8 +70,18 @@ def select_all(data):
     records = data['uniqueRecords']
     if len({r['id'] for r in records}) != len(records):
         raise ValueError('Duplicate record IDs in uniqueRecords')
+    repeated = select_repeated(records)
+    retained = set(repeated['selectedIds'])
+    candidates = [r for r in records if r['id'] in retained]
+    metrics = {}
+    for name, key, unit in METRICS:
+        result = dict(select_metric(candidates, key), unit=unit)
+        result['excludedIds'] = [r['id'] for r in records if r['id'] not in result['selectedIds']]
+        result['excludedReasons'].update({str(r['id']): repeated['annotations'][str(r['id'])]['repeatReason']
+                                         for r in records if r['id'] not in retained})
+        metrics[name] = result
     return dict(method='descending-prefix-relative-rmse', threshold=0.05,
-                metrics={name: dict(select_metric(records, key), unit=unit) for name, key, unit in METRICS})
+                repeatedTests=repeated, metrics=metrics)
 
 
 def main():
