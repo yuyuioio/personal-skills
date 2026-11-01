@@ -1,13 +1,19 @@
 ---
 name: endnote-summary
-description: Finds and reads article full text and SI, verifies identity, names paper-summary chats with the original article title and DOI, and saves Chinese summaries as original-title-and-DOI Markdown files in fresh per-paper folders for manual EndNote attachment. Explains every main-text figure and table plus important SI figures/tables panel by panel, embeds source-PDF crops beside the explanations, and covers innovations, results, and testing principles. Use for 文献阅读、论文总结、全文及SI下载、补充材料解读、文献比较 and EndNote笔记; requests necessary access when downloads are blocked.
+description: Read papers and SI, explain figures and testing principles in Chinese, save source-linked Markdown with original PDF crops, identify the current computer, and automatically attach a self-contained summary to the matching existing Zotero paper. Use for 文献阅读、论文总结、补充材料解读 and Zotero总结归档; retain EndNote delivery only when requested.
 license: MIT
-compatibility: Web search plus an available external browser (Edge/Chrome or the user's chosen browser) for SI discovery/download, and readable download locations plus a writable article folder. Python 3.10+ with pypdf; pypdfium2 and Pillow for source-page crops; optional OCR and SI readers. Restricted articles may require the user's existing institutional/publisher access. EndNote is not required to generate summaries.
 metadata:
-  version: "2.8"
+  version: "2.9"
+  compatibility: "Python 3.10+ with pypdf, pypdfium2 and Pillow; Python Markdown for standalone HTML; local Zotero Desktop and external browser for SI."
 ---
 
-# 自动获取全文及 SI，阅读后生成 EndNote 手动附件
+# 获取全文及 SI，生成图文总结并保存到 Zotero
+
+## 首先确认电脑与目标文库
+
+每次执行先用 PowerShell 7 读取 `[Environment]::MachineName`，记录实际电脑名。用户当前电脑为 `YUYUIOIO270K`，之前的电脑为 `Yuyuioio`（匹配时不区分大小写）；不能把一台电脑的盘符、Zotero 目录或同步成功状态套到另一台。按当前机器实际环境发现路径并检查本机 Zotero。完整匹配、附件保存及验证流程见 [references/zotero_sync.md](references/zotero_sync.md)。
+
+当前默认：总结完成后，找到 Zotero 中同名已有主文献，核对 DOI/完整题名并直接保存总结附件。用户已授权这一默认操作，无需每篇重复询问；找不到唯一条目或身份冲突时才请用户明确目标。不新建主书目、不删除旧附件、不更改无关元数据。
 
 ## 默认结果
 
@@ -19,7 +25,7 @@ metadata:
 
 对上述每一项，从已核验正文/SI PDF 渲染并裁剪原图或原表，保留必要的面板、坐标、图例和图注，保存到本篇 `figures/`，就地插入主 Markdown 的对应解释旁；表格另转 Markdown 供检索时也保留原表截图。截图不是重绘或 AI 生成，渲染后只做一次图号、面板对应和关键内容可读性核对；图像正确且可读即停止修图。图旁注明来源文件、物理页码及图表号；图片和 Markdown 一起交付。
 
-默认生成文件作为文献总结附件，由用户手动添加 `文献原始标题__DOI.md` 到已有 EndNote 条目的 File Attachments。不要启动 EndNote、导出 XML、备份整个库、调用桌面控制或执行写回来完成普通总结。
+默认保留本地 `文献原始标题__DOI.md` 与原图包，并生成内嵌原图的单文件 HTML，直接导入 Zotero 中匹配的已有文献作为子附件，使图片随附件保存。使用 Zotero 原生写附件能力，保存后读取验证父条目、附件及文件哈希；同内容已存在时复用，不重复新增。不能把本机保存成功说成云端或另一台电脑同步完成。EndNote 手动附件只在用户明确要求时使用；普通总结不启动 EndNote、导出 XML 或改库。
 
 默认主动上网定位并下载**文章全文和该篇 SI**，无需用户额外说“下载 SI”。输入可以是 DOI、题名、文章网址或本地 PDF。已有同版本全文可核验后复用，仍要查看出版社的补充材料列表并下载 SI。**涉及查找或下载 SI，均先在外部浏览器（Edge/Chrome 或用户指定浏览器）打开出版社页面和真实附件链接并尝试，沿用用户已有登录会话，不以应用内浏览器或 HTTP 直连替代这一步。** 下载可落在桌面或桌面的 `download` 文件夹；点击后先检查实际下载目录，确认文件完成且属于本篇，再复制到文献文件夹，保留原下载文件。具体定位与核验见 [references/acquisition.md](references/acquisition.md)。公开可访问资料直接获取；实际遇到网络权限、登录、机构订阅或验证码阻碍时，说明被阻文件与原因，按 [references/acquisition.md](references/acquisition.md) 请求必要授权或人工登录。不保证授权能获得不存在或无订阅的资料，不用摘要替代全文。
 
@@ -42,7 +48,7 @@ PDF 图表读取阶段，先读取并应用随包保留的 [OpenAI 官方 PDF �
 
 ## 工作流程
 
-1. 先确认目标文章身份和可写存储根路径，然后按 [references/acquisition.md](references/acquisition.md) 打开 DOI/出版社落地页，获取全文 PDF 与页面真实列出的 SI/Supporting Information/Additional files；SI 的查找及下载使用外部浏览器，并核查桌面或桌面 `download` 等实际下载位置。题名输入先核对作者/年份；本地 PDF 输入先检查首页身份。身份未确定时可在临时目录提取，标题和 DOI 确定后建立本次的“标题＋DOI”文件夹；原始用户文件保留在原处，必要时复制到新文件夹并核对哈希。核验下载的格式、可读性及版本，并记录每份文件的 URL、路径、哈希与取得/阅读状态；缺少权限时请求所需授权，继续已可读部分。标准阅读包含正文全部图表及其子图、SI 方法和经重要性筛选的补充图表；先建立正文/SI 图表清单，核对每项的页码、面板、选取理由、原图资源和解释状态。快读/逐图精读按用户要求调整，不把摘要或未读 SI 声称为全文精读。
+1. 先确认实际电脑名、本机 Zotero 连接、目标文章身份和可写存储根路径，然后按 [references/acquisition.md](references/acquisition.md) 打开 DOI/出版社落地页，获取全文 PDF 与页面真实列出的 SI/Supporting Information/Additional files；SI 的查找及下载使用外部浏览器，并核查桌面或桌面 `download` 等实际下载位置。题名输入先核对作者/年份；本地 PDF 输入先检查首页身份。身份未确定时可在临时目录提取，标题和 DOI 确定后建立本次的“标题＋DOI”文件夹；原始用户文件保留在原处，必要时复制到新文件夹并核对哈希。核验下载的格式、可读性及版本，并记录每份文件的 URL、路径、哈希与取得/阅读状态；缺少权限时请求所需授权，继续已可读部分。标准阅读包含正文全部图表及其子图、SI 方法和经重要性筛选的补充图表；先建立正文/SI 图表清单，核对每项的页码、面板、选取理由、原图资源和解释状态。快读/逐图精读按用户要求调整，不把摘要或未读 SI 声称为全文精读。
 
 2. 对下载或核验复用的主 PDF 从本技能目录运行提取，优先已有含 `pypdf` 的 Python 环境：
 
@@ -83,12 +89,16 @@ PDF 图表读取阶段，先读取并应用随包保留的 [OpenAI 官方 PDF �
    python scripts/paper_bundle.py package --manifest "output/Actual article title__10.1000_example/paper-HASH.match.json" --body "output/Actual article title__10.1000_example/summary-body.md"
    ```
 
-   文件夹路径与 `HASH` 均替换为实际返回值，不照抄示例。可加 `--notes research-notes.txt` 生成供自行粘贴的短 Research Notes。脚本只提取/核验/打包，不调用模型生成内容。主总结保存为同目录的 `文献原始标题__DOI.md`（示例为 `Actual article title__10.1000_example.md`），有无 `--paper-folder` 都遵循这一文件名规则；内部证据文件仍用哈希以便追溯。普通再次总结建立新文件夹；只有用户要求修改本次已有总结时，才在该文件夹内用 `--overwrite` 重生成。后续操作和交付使用脚本实际返回的主 Markdown 路径，不硬编码旧文件名。
+   文件夹路径与 `HASH` 均替换为实际返回值，不照抄示例。仅用户另行要求时加 `--notes research-notes.txt` 生成短 Research Notes。默认 `--delivery-mode zotero_attachment`；只生成文件或 EndNote 手动附件时显式使用 `--delivery-mode manual_attachment`。脚本只提取/核验/打包，不调用模型生成内容。主总结保存为同目录的 `文献原始标题__DOI.md`（示例为 `Actual article title__10.1000_example.md`），有无 `--paper-folder` 都遵循这一文件名规则；内部证据文件仍用哈希以便追溯。普通再次总结建立新文件夹；只有用户要求修改本次已有总结时，才在该文件夹内用 `--overwrite` 重生成。后续操作和交付使用脚本实际返回的主 Markdown 路径，不硬编码旧文件名。
 
-6. 检查本次新建的“标题＋DOI”文件夹及归档内容；正文真实完成而非提取文本/模板；创新点、实现方法、实现结果和结论均已写明且对应证据；最后的小节确为“所有表征与测试方法的原理解析”，并与方法清单逐项核对，没有遗漏辅助测试、混入仅被引用或建议开展的方法。DOI 对应本篇；聊天名称中的题名和 DOI 与本篇核验信息一致，自动改名失败或平台截短须如实交代；全文和 SI 下载并实际读取的范围与清单一致；数字、单位、图表定位正确；正文图表号和全部面板与覆盖清单一一对应，选定 SI 图表都配图解释，未选 SI 均有理由，缺图/不可读项明确标注；运行一次裁剪工具的 `check` 检查资源结构；解释与原图的对应关系复用首次已完成的核对记录，不重复打开全部截图。最终 `.md` 的本地图片链接可解析，且用于解释的面板、坐标和图例可读即可；移动整个文章文件夹后，相对链接仍在包内解析。文件可打开、路径及哈希正确。SI 下载成功不等于已读，未找到不等于不存在，访问失败不等于无科学证据。默认 `delivery_mode: manual_attachment`、`writeback_status: not_attempted`，生成成功不能声称已导入。
+6. 检查本次新建的“标题＋DOI”文件夹及归档内容；正文真实完成而非提取文本/模板；创新点、实现方法、实现结果和结论均已写明且对应证据；最后的小节确为“所有表征与测试方法的原理解析”，并与方法清单逐项核对，没有遗漏辅助测试、混入仅被引用或建议开展的方法。DOI 对应本篇；聊天名称中的题名和 DOI 与本篇核验信息一致，自动改名失败或平台截短须如实交代；全文和 SI 下载并实际读取的范围与清单一致；数字、单位、图表定位正确；正文图表号和全部面板与覆盖清单一一对应，选定 SI 图表都配图解释，未选 SI 均有理由，缺图/不可读项明确标注；运行一次裁剪工具的 `check` 检查资源结构；解释与原图的对应关系复用首次已完成的核对记录，不重复打开全部截图。最终 `.md` 的本地图片链接可解析，且用于解释的面板、坐标和图例可读即可；移动整个文章文件夹后，相对链接仍在包内解析。文件可打开、路径及哈希正确。SI 下载成功不等于已读，未找到不等于不存在，访问失败不等于无科学证据。默认 `delivery_mode: zotero_attachment`。本地打包完成时仅标 `zotero.writeback_status: not_attempted`，随后按 [references/zotero_sync.md](references/zotero_sync.md) 唯一匹配已有条目、生成内嵌原图 HTML、通过原生 API 保存并读取验证；验证通过才标 `verified`，保留电脑名、父条目 key、附件 key 和哈希回执。`cloud_sync_status` 未验证时保持 `not_verified`，不能因生成成功而声称已入库或已跨设备同步。
 
 ## 交付
 
-优先链接主 Markdown，说明“已生成，需手动添加到对应 EndNote 条目”。步骤：按 DOI/标题找到已有条目 → 打开条目 → File Attachments/附加文件 → 选择 `.md` → 保存，可选择复制文件到个人图书馆。Markdown 是附件，不用书目 Import 的 RIS/XML 流程更新条目。不必添加提取文本或 JSON。主 `.md` 通过相对路径引用 `figures/`，交付和移动时须保留整个文章文件夹；Markdown 本身不嵌入图片。EndNote 单独复制 `.md` 不保证会同时复制资源目录，不声称仅添加主文件即可保留所有图片；默认仍手动附加，不额外写库。必要时附证据清单和阅读局限，避免技术中间文件淹没结果。
+默认报告实际电脑名和 Zotero 保存结果，提供 `zotero://select/library/items/KEY` 条目链接及本地主 Markdown；说明已附加的是包含原图的自包含 HTML。本地 Markdown 与 `figures/` 仍一起保留。只在本地 API 和文件验证通过后说“已保存到 Zotero”；跨设备或云端尚未验证时明确说明，不声称之前的电脑已收到。使用了 Zotero 插件时，链接实际使用的 Zotero 技能。
 
-不要额外写 Research Notes、创建重复条目、删除附件、修改 `.Data` 或数据库。本技能在调用时运行，不是后台文件夹监视器。历史写回工具保留作兼容；只有用户之后明确改回自动导入且本会话有对应工具时，才按 [references/desktop_writeback.md](references/desktop_writeback.md) 执行，默认手动交付不得调用它。
+若匹配或原生保存能力确实受阻，说明具体问题并交付已完成的本地文件，保留待保存状态，不重新建立书目或只复制进 storage 目录假装注册成功。不要因旧 EndNote 手动交付条款而忽略当前已授权的 Zotero 保存。
+
+只有用户明确要求 EndNote 手动附件时，才提示在已有条目的 File Attachments 选择 `.md`，并保留图片目录；不是 RIS/XML 书目导入。EndNote 自动写回只在用户明确请求时阅读 [references/desktop_writeback.md](references/desktop_writeback.md)。
+
+不要额外写 Research Notes、创建重复主条目、删除附件、直接修改 Zotero SQLite 或 EndNote `.Data`/数据库。本技能在调用时运行，不是后台文件夹监视器；不修改 Zotero 现有同步服务、附件保留策略或账号设置。

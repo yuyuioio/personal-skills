@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Prepare evidence-linked PDF summaries and read-only EndNote match manifests."""
+"""Package evidence-linked summaries for verified Zotero attachment delivery."""
 from __future__ import annotations
 
 import argparse
 import copy
 import hashlib
 import json
+import platform
 import re
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -320,7 +321,10 @@ def prepare(args):
         raise ValueError('Outputs already exist; use --overwrite for intentional regeneration')
     manifest = {
         'schema_version': '2.0', 'paper_id': f'sha256:{fingerprint}',
-        'delivery_mode': 'manual_attachment',
+        'delivery_mode': getattr(args, 'delivery_mode', 'manual_attachment'),
+        'environment': {'computer_name': platform.node()},
+        'zotero': {'machine_name': platform.node(), 'parent_key': None,
+                   'writeback_status': 'not_attempted', 'cloud_sync_status': 'not_verified'},
         'created_at': datetime.now(timezone.utc).isoformat(),
         'source_pdf': {'path': str(source), 'filename': source.name, 'sha256': fingerprint,
                        'pages': len(pages)},
@@ -367,7 +371,12 @@ def package(args):
         manifest.setdefault('previous_deliveries', []).append({
             'outputs': copy.deepcopy(manifest['outputs']),
             'endnote': copy.deepcopy(manifest['endnote'])})
-    manifest['delivery_mode'] = 'manual_attachment'
+    if manifest.get('zotero', {}).get('writeback_status') == 'verified':
+        manifest.setdefault('previous_zotero_deliveries', []).append(copy.deepcopy(manifest['zotero']))
+    manifest['delivery_mode'] = getattr(args, 'delivery_mode', None) or manifest.get('delivery_mode', 'manual_attachment')
+    manifest['environment'] = {'computer_name': platform.node()}
+    manifest['zotero'] = {'machine_name': platform.node(), 'parent_key': None,
+                          'writeback_status': 'not_attempted', 'cloud_sync_status': 'not_verified'}
     manifest['endnote']['writeback_status'] = 'not_attempted'
     manifest['endnote'].pop('verification', None)
     manifest['endnote'].pop('writeback_plan', None)
@@ -379,9 +388,12 @@ def package(args):
               'endnote_library': manifest['endnote']['library_path'],
               'endnote_record_number': manifest['endnote']['record_number'],
               'match_status': manifest['endnote']['status'],
-              'writeback_status': manifest['endnote']['writeback_status'],
+              ('writeback_status' if manifest['delivery_mode'] == 'manual_attachment' else 'writeback_status_at_packaging'): manifest['zotero']['writeback_status'],
+              'zotero_sync_receipt': 'zotero-sync-receipt.json',
+              'computer_name': platform.node(),
+              'zotero_parent_key': None,
               'match_manifest': str(manifest_path), 'summary_status': 'ready',
-              'delivery_mode': 'manual_attachment'}
+              'delivery_mode': manifest['delivery_mode']}
     lines = ['---']
     for key, value in fields.items():
         if isinstance(value, list):
@@ -409,6 +421,7 @@ def main():
     first.add_argument('--pdf', type=Path, required=True)
     first.add_argument('--output-dir', type=Path, required=True)
     first.add_argument('--bibliography', type=Path, help='Evidence-backed bibliography JSON')
+    first.add_argument('--delivery-mode', choices=['zotero_attachment', 'manual_attachment'], default='zotero_attachment')
     first.add_argument('--paper-folder', action='store_true',
                        help='Create a fresh title/DOI folder inside --output-dir for this delivery')
     first.add_argument('--endnote-xml', type=Path, help='Read-only exported EndNote XML')
@@ -419,6 +432,7 @@ def main():
     second.add_argument('--manifest', type=Path, required=True)
     second.add_argument('--body', type=Path, required=True)
     second.add_argument('--notes', type=Path)
+    second.add_argument('--delivery-mode', choices=['zotero_attachment', 'manual_attachment'])
     second.add_argument('--overwrite', action='store_true')
     second.set_defaults(action=package)
     args = parser.parse_args()

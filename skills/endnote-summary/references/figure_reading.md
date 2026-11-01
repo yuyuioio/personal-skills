@@ -84,4 +84,4 @@ python scripts/figure_assets.py check --manifest paper-folder/figure-assets.json
 - 已选 SI 每项有理由、原图及同等解释；未选项有图表号及理由；缺失资料与未选资料分开。
 - 图题表题、坐标、图内标注、观察、结论映射及“原理为何支撑推论”齐全；无法确定的文字/单位/误差明确标注。
 - 最终 `.md` 就地显示对应截图，每张实际查看过；原图/原表与正文/SI/页码、图号和哈希绑定。
-- 主 Markdown 与 `figures/` 必须一起保留和移动；相对链接让文章文件夹可搬移，但 Markdown 本身不储存这些图片的字节。EndNote 仅复制 `.md` 不保证会收进资源目录，不声称单个附件可保留全部图片；沿用手动附件模式。
+- 主 Markdown 与 `figures/` 必须一起保留和移动；相对链接让文章文件夹可搬移，但 Markdown 本身不储存这些图片的字节。EndNote 仅复制 `.md` 不保证会收进资源目录，不声称单个附件可保留全部图片；当前默认按 [zotero_sync.md](zotero_sync.md) 导出内嵌原图 HTML 并保存到 Zotero；仅明确要求 EndNote 时沿用手动附件模式。

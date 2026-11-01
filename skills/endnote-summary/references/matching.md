@@ -1,4 +1,6 @@
-# 身份、命名和手动交付契约
+# 身份、命名和 Zotero 交付契约
+
+**当前默认（v2.9）**：先识别电脑，再自动附加到 Zotero 同名已有文献，详见 [zotero_sync.md](zotero_sync.md)。下面的 EndNote XML/记录号/手动操作仅为用户明确指定 EndNote 时的兼容流程，不作为普通总结默认。
 
 ## 身份与书目
 
@@ -18,9 +20,10 @@
 
 默认每次总结用 `prepare --paper-folder --output-dir 存储根路径 --bibliography bibliography.json` 建立新的 `原文标题__10.xxxx_suffix/` 文件夹；清单中 `storage.layout: title_doi_folder` 标识这一布局。主总结命名为 `原文标题__10.xxxx_suffix.md`，与本次证据文件一并位于该文件夹。普通重复总结的文件夹加 `__2`、`__3` 序号，保留先前结果。旧清单未设置这一布局时也使用同一主 Markdown 文件名规则；新总结必须使用独立文件夹布局。v2.2 已交付的“总结.md”不自动改名；后续打包使用实际返回的新文件路径。
 
-| 文件 | 用途 | 添加到 EndNote |
+| 文件 | 用途 | 归档方式 |
 | --- | --- | --- |
-| `原文标题__DOI.md` | 中文总结，完整标题、DOI、源哈希和状态；位于标题＋DOI文件夹中 | 是，作为该条目附件 |
+| `原文标题__DOI.md` | 中文总结，完整标题、DOI、源哈希和状态；位于标题＋DOI文件夹中 | 本地保留；按需作为 EndNote 兼容附件 |
+| `原文标题__DOI.html` | 内嵌原图的单文件总结 | 默认自动导入已有 Zotero 主条目 |
 | `paper-HASH.source.md` | 带物理页码的提取文本 | 否 |
 | `paper-HASH.match.json` | 身份、证据、候选、输出路径/哈希和匹配状态 | 否，保留追溯 |
 | `paper-HASH.notes.txt` | 请求时生成的短笔记 | 可自行粘贴 |
@@ -33,7 +36,7 @@
 
 ## 状态和可选只读匹配
 
-默认不读取 EndNote：`endnote.status: not_checked`、`record_number: null`、`writeback_status: not_attempted`、`delivery_mode: manual_attachment`。重生成时本次交付清除旧写回成功标记，以前记录存入 `previous_deliveries`。
+默认不读取 EndNote：`endnote.status: not_checked`、`record_number: null`，旧 `endnote.writeback_status` 保持 `not_attempted`。当前默认 `delivery_mode: zotero_attachment`；`environment.computer_name` 记录当前机器，`zotero.writeback_status` 从 `not_attempted` 到 `prepared`，经本地 API 与文件哈希复查后才变为 `verified`；`cloud_sync_status` 单独记录，默认 `not_verified`。重生成时本次交付清除旧写回成功标记，以前记录存入 `previous_deliveries`。
 
 用户提供 XML 时可只读匹配，不写库。拒绝 DTD/实体、越出 `.Data/PDF` 的内部路径、远程 file URI。相同 PDF 哈希或已核验 DOI 是强候选；多强候选或 DOI/哈希冲突为 `ambiguous`；唯一强候选且有库及记录号为 `matched`；只有规范化题名匹配为 `review_required`；无候选为 `not_found`。匹配只对导出快照成立，XML 可过时或省略非 PDF 附件，不能证明附件注册。
 
