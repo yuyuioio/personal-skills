@@ -35,7 +35,7 @@ def col_number(label):
 
 
 def verify(workbook,manifest,data):
-    assert manifest.get('version')==7,'Use the version 7 selection, column order and two-summary manifest'
+    assert manifest.get('version')==8,'Use the version 8 physical-point yield and two-summary manifest'
     expected=select_all(data)
     assert manifest['selection']==expected,'Input selection changed'
     records={r['id']:dict(r,**expected['repeatedTests']['annotations'][str(r['id'])]) for r in data['uniqueRecords']}
@@ -135,12 +135,25 @@ def verify(workbook,manifest,data):
         assert set(result['bestIds'])<=set(result['selectedIds']),'Every tied candidate maximum must be retained'
     summary=manifest['summaryManifest']
     assert summary['sheet']=='总结' and [s['kind'] for s in summary['sections']]==['independent','pce']
+    assert summary['prefix']==['编号','Jsc (mA/cm²)','Voc (V)','FF (%)','PCE (%)','Pmax (mW)','Imax (mA)','Vmax (V)','Rs (Ω)','Rsh (Ω)','Isc (mA)','良品率 (a/b)','日期']
     for section in summary['sections']:
         for index,label in enumerate(summary['prefix']):
             assert value('总结',f"{column(index+1)}{section['start']}")==label
         assert len(section['rows'])==len(expected['scopes'])
         for row,scope in zip(section['rows'],expected['scopes']):
             assert value('总结',f"A{row['row']}")==scope['label']
+            groups=[g for g in expected['repeatedTests']['groups'] if any(i in scope['recordIds'] for i in g['recordIds'])]
+            total=len(groups)
+            assert total==scope['totalPointCount']==row['totalPointCount']
+            assert close(value('总结',row['bRef']),total)
+            if total==0:
+                expected_yield='无法计算（总测试点数为0）'
+            elif section['kind']=='pce':
+                result=expected['metrics'][scope['metricNames']['PCE']]
+                expected_yield=f"{result['count'] if result['passed'] else 0}/{total}"
+            else:
+                expected_yield='\n'.join(f"{name} {expected['metrics'][scope['metricNames'][name]]['count'] if expected['metrics'][scope['metricNames'][name]]['passed'] else 0}/{total}" for name in ['Jsc','Voc','FF','PCE'])
+            assert value('总结',f"L{row['row']}")==expected_yield
             if section['kind']=='independent':
                 for index,name in enumerate(['Jsc','Voc','FF','PCE'],2):
                     result=expected['metrics'][scope['metricNames'][name]]

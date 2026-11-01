@@ -129,6 +129,8 @@ def select_all(data):
     metrics = {}
     for scope in scopes:
         local = [r for r in records if r['id'] in scope['recordIds']]
+        scope['totalPointCount'] = sum(any(i in scope['recordIds'] for i in group['recordIds'])
+                                       for group in repeated['groups'])
         candidates = [r for r in local if r['id'] in retained]
         scope['metricNames'] = {}
         scope['files'] = list(dict.fromkeys(r.get('file') or str(r['id']) for r in local))

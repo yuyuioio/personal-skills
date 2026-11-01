@@ -198,54 +198,81 @@ for(const [index,r] of records.entries()){
 }
 if(records.length){const last=col(records.length*5-1);raw.getRange(`A4:${last}${maxRawRow}`).format.rowHeight=17;raw.getRange(`A1:${last}1`).format.rowHeight=titleHeight;raw.getRange(`A2:${last}2`).format.rowHeight=sourceHeight;raw.getRange(`A3:${last}3`).format.rowHeight=20;}
 raw.freezePanes.freezeRows(3);views.push({sheet:raw.name,range:`A1:${col(Math.min(14,Math.max(4,records.length*5-1)))}18`,label:'raw'});
-const summaryManifest={sheet:overview.name,prefix:fields.slice(0,12).map(f=>f[0]),sections:[],cells:{}};
-const summaryHeaders=[...summaryManifest.prefix,'Jsc入选n','Voc入选n','FF入选n','PCE入选n','Jsc CV (%)','Voc CV (%)','FF CV (%)','PCE CV (%)','提示'];
-const pceSummaryHeaders=[...summaryManifest.prefix,'PCE入选n','PCE CV (%)','面积 (cm²)','提示'];
+const summaryPrefix=[...fields.slice(0,11).map(f=>f[0]),'良品率 (a/b)',fields[11][0]];
+const summaryManifest={sheet:overview.name,prefix:summaryPrefix,sections:[],cells:{},pointCountHelpers:[]};
+const summaryHeaders=[...summaryPrefix,'Jsc入选n','Voc入选n','FF入选n','PCE入选n','Jsc CV (%)','Voc CV (%)','FF CV (%)','PCE CV (%)','提示','总测试点数 b'];
+const pceSummaryHeaders=[...summaryPrefix,'PCE入选n','PCE CV (%)','面积 (cm²)','提示','总测试点数 b'];
 const bottom=12+2*selection.scopes.length;
-base(overview,`A1:U${bottom}`);overview.tabColor=ink;overview.getRange('A:A').format.columnWidth=29;overview.getRange('B:T').format.columnWidth=15;overview.getRange('L:L').format.columnWidth=23;overview.getRange('U:U').format.columnWidth=40;
-function summaryLine(row,text){overview.getRange(`A${row}:U${row}`).merge();overview.getRange(`A${row}`).values=[[text]];overview.getRange(`A${row}:U${row}`).format={wrapText:true,rowHeight:30};}
+base(overview,`A1:W${bottom}`);overview.tabColor=ink;overview.getRange('A:A').format.columnWidth=29;overview.getRange('B:W').format.columnWidth=15;overview.getRange('L:L').format.columnWidth=22;overview.getRange('M:M').format.columnWidth=23;overview.getRange('V:V').format.columnWidth=40;
+function summaryLine(row,text){overview.getRange(`A${row}:W${row}`).merge();overview.getRange(`A${row}`).values=[[text]];overview.getRange(`A${row}:W${row}`).format={wrapText:true,rowHeight:30};}
 function summaryFormula(ref,formula,expectedValue){overview.getRange(ref).formulas=[[formula]];summaryManifest.cells[ref]={formula,expectedValue};}
 function scopeDates(scope,ids){const chosen=new Set(ids||scope.recordIds);return [...new Set(records.filter(r=>chosen.has(r.id)).map(r=>(r.meta['Time stamp']||'').split(' ')[0]).filter(Boolean))].sort().join('、')||'未提供';}
-summaryLine(1,'四项独立筛选结果总结');summaryLine(2,'四项分别引用各自筛选均值，入选集合可以不同。其余参数留空；这些均值不组成一条真实器件记录。CV=总体标准差÷均值绝对值。');
+// Denominator counts physical sample/point groups, including groups with no valid metric.
+const allPositions=new Map(allTable.positions.map(p=>[p.id,p])),idIndex=allTable.labels.indexOf('记录ID');
+const pointRanges=new Map();let helperRow=bottom+4;
+overview.getRange(`A${helperRow}:F${helperRow}`).values=[['总测试点计数依据','条件','样品编号','测试点','计数（含无效点）','原始记录ID']];header(overview,`A${helperRow}:F${helperRow}`);helperRow++;
+for(const scope of selection.scopes){
+ const scopeIds=new Set(scope.recordIds),groups=selection.repeatedTests.groups.filter(g=>g.recordIds.some(id=>scopeIds.has(id))),first=helperRow,entries=[];
+ for(const group of groups){
+  const ids=group.recordIds.filter(id=>scopeIds.has(id)),refs=ids.map(id=>`'全部参数'!${tableRef(allTable,allPositions.get(id),idIndex)}`),formula=`=IF(COUNT(${refs.join(',')})>0,1,0)`;
+  overview.getRange(`A${helperRow}:F${helperRow}`).values=[['同样品同点的重复测量合并一次',scope.label,group.sampleId,group.pointId,null,ids.join(',')]];
+  summaryFormula(`E${helperRow}`,formula,1);entries.push({row:helperRow,recordIds:ids});helperRow++;
+ }
+ const last=Math.max(first,helperRow-1),range=`E${first}:E${last}`;pointRanges.set(scope.label,range);summaryManifest.pointCountHelpers.push({label:scope.label,range,entries});
+}
+base(overview,`A${bottom+5}:F${Math.max(bottom+5,helperRow-1)}`);overview.getRange(`A${bottom+5}:F${Math.max(bottom+5,helperRow-1)}`).format.wrapText=true;
+function usableCount(result,sheet,stats){
+ const tests=[`ISNUMBER('${sheet}'!H4)`,`'${sheet}'!H4<='${sheet}'!$L$4`];
+ if(stats.gapIndex>=0){const first=tableManifest.find(t=>t.sheet===sheet&&t.role==='selected').positions[0]?.row??29,last=tableManifest.find(t=>t.sheet===sheet&&t.role==='selected').positions.at(-1)?.row??29;tests.push(`MAX('${sheet}'!$${col(stats.gapIndex+1)}$${first}:$${col(stats.gapIndex+1)}$${last})<='${sheet}'!$L$5`);}
+ return `IF(AND(${tests.join(',')}),COUNT('${sheet}'!${stats.selectedRange}),0)`;
+}
+summaryLine(1,'四项独立筛选结果总结');summaryLine(2,'四项分别引用各自筛选均值，集合可以不同。良品率分别列a/b；b按同样品同点合并重复测量，无效点仍计入。CV=总体标准差÷均值绝对值。');
 const secondTitle=6+selection.scopes.length,secondHeader=secondTitle+2;
-summaryLine(secondTitle,'PCE筛选后的全部参数总结');summaryLine(secondTitle+1,'全部参数均引用本条件PCE入选记录的平均值行。PCE直接平均原始报告值；不由其他均值相乘重算。');
+summaryLine(secondTitle,'PCE筛选后的全部参数总结');summaryLine(secondTitle+1,'全部参数引用同一PCE入选集合的平均值。良品率a为PCE筛选后可用点数，b为本条件总样品点数（合并重复测量，含无效点）。');
 for(const [kind,start] of [['independent',4],['pce',secondHeader]]){
- const heads=kind==='pce'?pceSummaryHeaders:summaryHeaders,lastCol=col(heads.length);
+ const heads=kind==='pce'?pceSummaryHeaders:summaryHeaders,lastCol=col(heads.length),bColumn=kind==='pce'?'R':'W';
  overview.getRange(`A${start}:${lastCol}${start}`).values=[heads];header(overview,`A${start}:${lastCol}${start}`);overview.getRange(`A${start}:${lastCol}${start}`).format.rowHeight=44;
  const section={kind,start,rows:[]};summaryManifest.sections.push(section);
  for(const [i,scope] of selection.scopes.entries()){
-  const row=start+1+i;overview.getRange(`A${row}:${lastCol}${row}`).format={fill:i%2?'#E8F0FA':'#FFFFFF',rowHeight:28};box(overview,`A${row}:${lastCol}${row}`);overview.getRange(`A${row}`).values=[[scope.label]];
+  const row=start+1+i;overview.getRange(`A${row}:${lastCol}${row}`).format={fill:i%2?'#E8F0FA':'#FFFFFF',rowHeight:kind==='independent'?62:28};box(overview,`A${row}:${lastCol}${row}`);overview.getRange(`A${row}`).values=[[scope.label]];
   const pce=selection.metrics[scope.metricNames.PCE],pceSheet=scope.metricNames.PCE+'筛选',pceTable=tableManifest.find(t=>t.sheet===pceSheet&&t.role==='selected');
-  overview.getRange(`L${row}`).values=[[scopeDates(scope,kind==='pce'?pce.selectedIds:null)]];
-  section.rows.push({row,label:scope.label,metricNames:scope.metricNames,pceIds:pce.selectedIds});
+  overview.getRange(`M${row}`).values=[[scopeDates(scope,kind==='pce'?pce.selectedIds:null)]];
+  const bRef=`${bColumn}${row}`;summaryFormula(bRef,`=SUM(${pointRanges.get(scope.label)})`,scope.totalPointCount);
+  section.rows.push({row,label:scope.label,metricNames:scope.metricNames,pceIds:pce.selectedIds,totalPointCount:scope.totalPointCount,bRef});
+  const usable=new Map();
   for(const [j,metric] of ['Jsc','Voc','FF','PCE'].entries()){
-   const name=scope.metricNames[metric],result=selection.metrics[name],sheet=name+'筛选',stats=statisticsManifest.find(st=>st.sheet===sheet);
+   const name=scope.metricNames[metric],result=selection.metrics[name],sheet=name+'筛选',stats=statisticsManifest.find(st=>st.sheet===sheet);usable.set(metric,usableCount(result,sheet,stats));
    if(kind==='independent'){
     summaryFormula(`${col(j+2)}${row}`,`='${sheet}'!B4`,result.mean??'无法计算');
-    summaryFormula(`${col(j+13)}${row}`,`=COUNT('${sheet}'!${stats.selectedRange})`,result.count);
-    summaryFormula(`${col(j+17)}${row}`,`='${sheet}'!H4`,result.relativeRmse??'无法计算');
+    summaryFormula(`${col(j+14)}${row}`,`=COUNT('${sheet}'!${stats.selectedRange})`,result.count);
+    summaryFormula(`${col(j+18)}${row}`,`='${sheet}'!H4`,result.relativeRmse??'无法计算');
    }
   }
+  let yieldFormula,yieldExpected;
   if(kind==='pce'){
    for(const [j,key] of keys.slice(0,10).entries()){
     const field=pceTable.metricFields.find(f=>f.key===key),ref=`${col(field.index+1)}${pceTable.averageRow}`,vals=pce.selectedIds.map(id=>byId.get(id).meta[key]).filter(v=>typeof v==='number'&&Number.isFinite(v));
     summaryFormula(`${col(j+2)}${row}`,`='${pceSheet}'!${ref}`,vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:'无法计算');
    }
-   const stats=statisticsManifest.find(st=>st.sheet===pceSheet);summaryFormula(`M${row}`,`=COUNT('${pceSheet}'!${stats.selectedRange})`,pce.count);summaryFormula(`N${row}`,`='${pceSheet}'!H4`,pce.relativeRmse??'无法计算');
+   const stats=statisticsManifest.find(st=>st.sheet===pceSheet);summaryFormula(`N${row}`,`=COUNT('${pceSheet}'!${stats.selectedRange})`,pce.count);summaryFormula(`O${row}`,`='${pceSheet}'!H4`,pce.relativeRmse??'无法计算');
    const field=pceTable.metricFields.find(f=>f.key==='Area (cm^2)'),areaRef=`${col(field.index+1)}${pceTable.averageRow}`,areas=pce.selectedIds.map(id=>byId.get(id).meta['Area (cm^2)']).filter(v=>typeof v==='number'&&Number.isFinite(v));
-   summaryFormula(`O${row}`,`='${pceSheet}'!${areaRef}`,areas.length?areas.reduce((a,b)=>a+b,0)/areas.length:'无法计算');
-   summaryFormula(`P${row}`,`=IF(M${row}=0,"无有效PCE",IF(M${row}=1,"仅1点，无法评价离散性",""))`,pce.count===0?'无有效PCE':pce.count===1?'仅1点，无法评价离散性':'');
+   summaryFormula(`P${row}`,`='${pceSheet}'!${areaRef}`,areas.length?areas.reduce((a,b)=>a+b,0)/areas.length:'无法计算');
+   summaryFormula(`Q${row}`,`=IF(N${row}=0,"无有效PCE",IF(N${row}=1,"仅1点，无法评价离散性",""))`,pce.count===0?'无有效PCE':pce.count===1?'仅1点，无法评价离散性':'');
+   yieldFormula=`=IF(${bRef}=0,"无法计算（总测试点数为0）",${usable.get('PCE')}&"/"&${bRef})`;yieldExpected=`${pce.passed?pce.count:0}/${scope.totalPointCount}`;
   }else{
    const single=['Jsc','Voc','FF','PCE'].some(metric=>selection.metrics[scope.metricNames[metric]].count===1);
-   summaryFormula(`U${row}`,`=IF(COUNTIFS(M${row}:P${row},1)>0,"存在单点指标，无法评价其离散性","")`,single?'存在单点指标，无法评价其离散性':'');
+   summaryFormula(`V${row}`,`=IF(COUNTIFS(N${row}:Q${row},1)>0,"存在单点指标，无法评价其离散性","")`,single?'存在单点指标，无法评价其离散性':'');
+   yieldFormula=`=IF(${bRef}=0,"无法计算（总测试点数为0）",`+['Jsc','Voc','FF','PCE'].map(metric=>`"${metric} "&${usable.get(metric)}&"/"&${bRef}`).join('&CHAR(10)&')+')';
+   yieldExpected=['Jsc','Voc','FF','PCE'].map(metric=>{const result=selection.metrics[scope.metricNames[metric]];return `${metric} ${result.passed?result.count:0}/${scope.totalPointCount}`;}).join(String.fromCharCode(10));
   }
-  overview.getRange(`B${row}:K${row}`).setNumberFormat('0.00000');overview.getRange(`D${row}:E${row}`).setNumberFormat('0.00000"%"');
-  if(kind==='independent'){overview.getRange(`M${row}:P${row}`).setNumberFormat('0');overview.getRange(`Q${row}:T${row}`).setNumberFormat('0.00000%');}else{overview.getRange(`M${row}`).setNumberFormat('0');overview.getRange(`N${row}`).setNumberFormat('0.00000%');overview.getRange(`O${row}`).setNumberFormat('0.00000');}
+  summaryFormula(`L${row}`,yieldFormula,scope.totalPointCount?yieldExpected:'无法计算（总测试点数为0）');overview.getRange(`L${row}`).format.wrapText=true;overview.getRange(`L${row}`).setNumberFormat('@');
+  overview.getRange(`B${row}:K${row}`).setNumberFormat('0.00000');overview.getRange(`D${row}:E${row}`).setNumberFormat('0.00000"%"');overview.getRange(bRef).setNumberFormat('0');
+  if(kind==='independent'){overview.getRange(`N${row}:Q${row}`).setNumberFormat('0');overview.getRange(`R${row}:U${row}`).setNumberFormat('0.00000%');}else{overview.getRange(`N${row}`).setNumberFormat('0');overview.getRange(`O${row}`).setNumberFormat('0.00000%');overview.getRange(`P${row}`).setNumberFormat('0.00000');}
  }
 }
-views.unshift({sheet:overview.name,range:`A1:U${bottom}`,label:'summary'});
+views.unshift({sheet:overview.name,range:`A1:W${bottom}`,label:'summary'});
 wb.recalculate();console.log((await wb.inspect({kind:'match',searchTerm:'#REF!|#DIV/0!|#VALUE!|#NAME\\?|#NUM!',options:{useRegex:true,maxResults:10},maxChars:1200})).ndjson);await (await SpreadsheetFile.exportXlsx(wb)).save(output);
-const manifest={version:7,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
+const manifest={version:8,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
 run('finalize_workbook.py',['--data',input,'--manifest',`${output}.manifest.json`,'--workbook',output]);
 if(options['--preview-dir']){const dir=path.resolve(options['--preview-dir']);await fs.mkdir(dir,{recursive:true});const final=await SpreadsheetFile.importXlsx(await FileBlob.load(output));for(const view of views){const png=await final.render({sheetName:view.sheet,range:view.range,scale:1.3,format:'png'});await fs.writeFile(path.join(dir,`${view.label}_preview.png`),new Uint8Array(await png.arrayBuffer()));}}
 console.log(JSON.stringify({saved:output,records:records.length,distributionCharts:chartManifest.length,jvCurves:0}));

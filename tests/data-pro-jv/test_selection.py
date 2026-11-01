@@ -140,6 +140,27 @@ class RepeatTests(unittest.TestCase):
         values = [dict(id=i, meta={PCE:x}) for i,x in enumerate([101.2,98.8])]
         self.assertEqual(select_metric(values, PCE)['selectedIds'], [0,1])
 
+    def test_total_points_merge_repeat_runs_and_keep_invalid_points(self):
+        data=[record(0,10),record(1,9.8),record(2,None,point='CH2'),record(3,None,point='CH2'),record(4,None,point='CH3')]
+        out=select_all({'uniqueRecords':data})
+        self.assertEqual(out['scopes'][0]['totalPointCount'],3)
+        self.assertEqual(out['metrics']['PCE']['count'],1)
+        self.assertEqual(len(data),5)
+
+    def test_total_points_keep_same_channel_on_different_samples(self):
+        out=select_all({'uniqueRecords':[record(0),record(1,sample='A35')]})
+        self.assertEqual(out['scopes'][0]['totalPointCount'],2)
+
+    def test_total_points_remain_separate_between_conditions(self):
+        data=[record(0),record(1)]
+        out=select_all({'uniqueRecords':data,'conditionScopes':[{'label':'one','ids':[0]},{'label':'two','ids':[1]}]})
+        self.assertEqual([s['totalPointCount'] for s in out['scopes']],[1,1])
+
+    def test_total_points_zero_for_empty_scope(self):
+        out=select_all({'uniqueRecords':[]})
+        self.assertEqual(out['scopes'][0]['totalPointCount'],0)
+        self.assertEqual(out['metrics']['PCE']['count'],0)
+
     def test_random_multirun_against_decimal_oracle(self):
         rng = random.Random(6)
         for _ in range(200):
