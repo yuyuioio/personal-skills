@@ -136,9 +136,9 @@ class RepeatTests(unittest.TestCase):
             self.assertEqual(metric['candidateCount'], 1)
             self.assertIn('同点选用记录1', metric['excludedReasons']['0'])
 
-    def test_independent_high_prefix_still_strict(self):
-        values = [dict(id=i, meta={PCE:x}) for i,x in enumerate([105,95])]
-        self.assertEqual(select_metric(values, PCE)['selectedIds'], [0])
+    def test_independent_high_prefix_uses_new_inclusive_limit(self):
+        values = [dict(id=i, meta={PCE:x}) for i,x in enumerate([101.2,98.8])]
+        self.assertEqual(select_metric(values, PCE)['selectedIds'], [0,1])
 
     def test_random_multirun_against_decimal_oracle(self):
         rng = random.Random(6)

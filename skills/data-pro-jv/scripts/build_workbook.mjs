@@ -19,10 +19,11 @@ run('select_metrics.py',['--data',input,'--output',`${output}.metrics.json`]);
 const data=JSON.parse(await fs.readFile(input,'utf8')),selection=JSON.parse(await fs.readFile(`${output}.metrics.json`,'utf8'));
 const records=data.uniqueRecords.map(r=>({...r,...selection.repeatedTests.annotations[String(r.id)]})),byId=new Map(records.map(r=>[r.id,r])),inputIndex=new Map(records.map((r,i)=>[r.id,i]));
 const wb=Workbook.create(),ink='#183153',blue='#2563EB';
-const keys=['Jsc (mA/cm^2)','Voc (V)','Efficiency (%)','Fill Factor (%)','Pmax (mW)','Imax (mA)','Vmax (V)','Rs (ohm)','Rsh (ohm)','Area (cm^2)','Isc (mA)'];
-const labels=['Jsc (mA/cm²)','Voc (V)','PCE (%)','FF (%)','Pmax (mW)','Imax (mA)','Vmax (V)','Rs (Ω)','Rsh (Ω)','面积 (cm²)','Isc (mA)'];
-const fields=[['文件名 / 原始测试点名',r=>r.label],['记录ID',r=>r.id],...keys.map((k,i)=>[labels[i],r=>r.meta[k]??null,k]),
- ['原始组号',r=>r.meta.group??null],['测试时间',r=>r.meta['Time stamp']??null],['样品编号',r=>r.sampleId??r.cell??null],['测量组/次数',r=>r.measurementGroup??r.file??null],
+const overview=wb.worksheets.add('总结');
+const keys=['Jsc (mA/cm^2)','Voc (V)','Fill Factor (%)','Efficiency (%)','Pmax (mW)','Imax (mA)','Vmax (V)','Rs (ohm)','Rsh (ohm)','Isc (mA)','Area (cm^2)'];
+const labels=['Jsc (mA/cm²)','Voc (V)','FF (%)','PCE (%)','Pmax (mW)','Imax (mA)','Vmax (V)','Rs (Ω)','Rsh (Ω)','Isc (mA)','面积 (cm²)'];
+const fields=[['编号',r=>r.label],...keys.slice(0,10).map((k,i)=>[labels[i],r=>r.meta[k]??null,k]),['日期',r=>r.meta['Time stamp']??null],
+ ['面积 (cm²)',r=>r.meta['Area (cm^2)']??null,'Area (cm^2)'],['记录ID',r=>r.id],['原始组号',r=>r.meta.group??null],['样品编号',r=>r.sampleId??r.cell??null],['测量组/次数',r=>r.measurementGroup??r.file??null],
  ['测试点',r=>r.pointId??null],['保留状态',r=>r.retentionStatus??null],['择优依据',r=>r.repeatReason??null],['比较提示',r=>r.repeatWarning||null],['异常标记',r=>r.anomalyFlag??null],['异常依据',r=>r.anomalyReason??null],['所属结果组',r=>(r.resultGroups||[]).join('\n')],
  ['优选关注',r=>r.recommendation||null],['文件名称 / 位置（含重复来源）',r=>r.sourceLocation||null]];
 function col(n){let s='';for(;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
@@ -33,7 +34,7 @@ function line(s,row,text){s.getRange(`A${row}:J${row}`).merge();s.getRange(`A${r
 function width(s){s.getRange('A:A').format.columnWidth=26;s.getRange('B:J').format.columnWidth=12;}
 function lines(value,width){return typeof value==='string'?value.split('\n').reduce((n,t)=>n+Math.max(1,Math.ceil([...t].length/(width/1.6))),0):1;}
 function table(s,start,items,{extras=[],role='parameters',average=false}={}){
- const defs=[fields[0],...extras,...fields.slice(1)],positions=[],separators=[];let cursor=start+1,lastGroup=null;
+ const defs=[...fields.slice(0,-1),...extras,fields.at(-1)],positions=[],separators=[];let cursor=start+1,lastGroup=null;
  for(const r of items){
   const group=r.sampleId??r.groupKey??r.cell;
   if(lastGroup!==null&&group!==lastGroup){separators.push(cursor);cursor++;}
@@ -43,7 +44,7 @@ function table(s,start,items,{extras=[],role='parameters',average=false}={}){
  if(end>16384||bottom>1048576)throw new Error('Table exceeds Excel dimensions; split scope');
  base(s,`A${start}:${col(end)}${bottom}`);
  s.getRange(`A${start}:${col(end)}${start}`).values=[defs.map(d=>d[0])];header(s,`A${start}:${col(end)}${start}`);
- const columnWidth=label=>label.startsWith('文件名称')?48:['择优依据','比较提示','未入选原因'].includes(label)?42:label==='优选关注'?32:label==='测试时间'?21:12;
+ const columnWidth=label=>label.startsWith('文件名称')?48:['择优依据','比较提示','未入选原因','异常依据'].includes(label)?42:label==='优选关注'?32:label==='日期'?22:12;
  defs.forEach(([label],i)=>s.getRange(`${col(i+1)}:${col(i+1)}`).format.columnWidth=i===0?29:columnWidth(label));
  function ref(p,i){return `${col(i+1)}${p.row}`;}
  for(const [idx,p] of positions.entries()){
@@ -65,7 +66,7 @@ function table(s,start,items,{extras=[],role='parameters',average=false}={}){
   const range=`A${averageRow}:${col(end)}${averageRow}`;s.getRange(range).format={fill:'#DCECE4',font:{name:'Arial',size:10,bold:true,color:ink},rowHeight:25};box(s,range);
   s.getRange(`A${averageRow}`).values=[['平均值（本表入选记录）']];
   defs.forEach(([label,,key],i)=>{
-   if(!key&&!(role==='selected'&&i===2))return;
+   if(!key)return;
    const letter=col(i+1),refs=`${letter}${start+1}:${letter}${dataBottom}`,ref=`${letter}${averageRow}`;
    averageFormulas[ref]=`=IF(COUNT(${refs})=0,"无法计算",AVERAGE(${refs}))`;
    s.getRange(ref).formulas=[[averageFormulas[ref]]];s.getRange(ref).setNumberFormat(label.includes('(%)')?'0.00000"%"':'0.00000');
@@ -77,6 +78,7 @@ function table(s,start,items,{extras=[],role='parameters',average=false}={}){
 function tableRef(table,p,index){return `${col(index+1)}${p.row}`;}
 const chartManifest=[],tableManifest=[],rawManifest=[],statisticsManifest=[],views=[];
 for(const [name,result] of Object.entries(selection.metrics)){
+ const scopeRecords=records.filter(r=>result.scopeIds.includes(r.id));
  const s=wb.worksheets.add(`${name}筛选`);base(s,'A1:J26');width(s);s.tabColor=ink;
  line(s,2,`${name} 入选数据分布`);s.getRange('A2').format.font={name:'Arial',size:14,bold:true,color:ink};
  s.getRange('A4').values=[[`最终均值 (${result.unit})`]];s.getRange('B4:C4').merge();
@@ -85,27 +87,45 @@ for(const [name,result] of Object.entries(selection.metrics)){
  s.getRange('B4').setNumberFormat(result.unit==='%'?'0.00000"%"':'0.00000');s.getRange('H4').setNumberFormat('0.00000000%');
  s.getRange('A5').values=[[`原始MSE (${result.unit==='%'?'百分点²':`(${result.unit})²`})`]];s.getRange('B5:C5').merge();s.getRange('D5:G5').merge();s.getRange('D5').values=[[`总体标准差 σ (${result.unit==='%'?'百分点':result.unit})`]];s.getRange('H5:J5').merge();s.getRange('B5').setNumberFormat('0.00000000');s.getRange('H5').setNumberFormat('0.00000000');s.getRange('A5:J5').format.rowHeight=25;
  const sigma=result.mse===null?null:Math.sqrt(result.mse);
- line(s,6,`${data.conditionLabel?data.conditionLabel+'。':''}入选 ${result.count} / 有效 ${result.validCount} / 候选 ${result.candidateCount}。${result.status}。范围：${data.files.join('、')}`);
- line(s,7,'相对均方根偏差 = √[Σ(x−均值)²/n] ÷ |均值|，严格 < 5%。修改入选值后公式自动重算；重新筛选需重新运行处理。');
+ line(s,6,`${result.conditionLabel}。入选 ${result.count} / 有效 ${result.validCount} / 候选 ${result.candidateCount}。${result.status}。范围：${result.sourceFiles.join('、')}`);
+ line(s,7,`相对均方根偏差 = √[Σ(x−均值)²/n] ÷ |均值|，≤ ${result.threshold*100}%。${result.maxAbsoluteGapAllowed===null?'':`PCE距候选最大值≤${result.maxAbsoluteGapAllowed}个百分点。`}修改后公式重算；重新筛选需重新运行。`);
+ s.getRange('K4:L4').values=[['相对偏差上限',result.threshold]];s.getRange('L4').setNumberFormat('0.0%');
+ s.getRange('K5:L5').values=[['最大绝对差上限（百分点）',result.maxAbsoluteGapAllowed]];
  const spreadNote=result.count>=2?'橙线：均值±1σ（标准差见H5，分母为n）。':'入选少于2点，不显示标准差标记。';
  line(s,8,`蓝点：入选原始值；绿线：均值；${spreadNote}横向位置仅用于错开重叠点。`);
  if(!result.passed||result.count<2)s.getRange('A6:J6').format.fill='#FEF3C7';
- const ids=new Set(result.selectedIds),selected=records.filter(r=>ids.has(r.id));
- const t=table(s,28,selected,{extras:[['原始测量序号',(_,i)=>i+1],[`${name}入选原值 (${result.unit})`,r=>r.meta[result.key]],[`与均值之差 (${result.unit})`,()=>null],[`偏差平方 ((${result.unit})²)`,()=>null]],role:'selected',average:true});tableManifest.push(t);
- const first=t.positions[0]?.row??29,last=t.positions.at(-1)?.row??29,selectedRange=`$C$${first}:$C$${last}`,squareRange=`$E$${first}:$E$${last}`;
+ const ids=new Set(result.selectedIds),selected=scopeRecords.filter(r=>ids.has(r.id));
+ const deviationLabel=`与均值之差 (${result.unit})`,squareLabel=`偏差平方 ((${result.unit})²)`,gapLabel='距候选最大PCE (百分点)';
+ const extraFields=[['原始测量序号',(_,i)=>i+1],[deviationLabel,()=>null],[squareLabel,()=>null],...(result.maxAbsoluteGapAllowed===null?[]:[[gapLabel,()=>null]])];
+ const t=table(s,28,selected,{extras:extraFields,role:'selected',average:true});tableManifest.push(t);
+ const metricIndex=t.metricFields.find(f=>f.key===result.key).index,deviationIndex=t.labels.indexOf(deviationLabel),squareIndex=t.labels.indexOf(squareLabel),gapIndex=t.labels.indexOf(gapLabel);
+ const first=t.positions[0]?.row??29,last=t.positions.at(-1)?.row??29,selectedRange=`$${col(metricIndex+1)}$${first}:$${col(metricIndex+1)}$${last}`,squareRange=`$${col(squareIndex+1)}$${first}:$${col(squareIndex+1)}$${last}`;
  const formulas={B4:`=IF(COUNT(${selectedRange})=0,"无法计算",AVERAGE(${selectedRange}))`,B5:`=IF(COUNT(${selectedRange})=0,"无法计算",SUM(${squareRange})/COUNT(${selectedRange}))`,H5:`=IF(COUNT(${selectedRange})=0,"无法计算",SQRT(B5))`,H4:`=IF(COUNT(${selectedRange})=0,"无法计算",IF(B4=0,"无法计算",H5/ABS(B4)))`};
  const literal=text=>`"${String(text).replaceAll('"','""')}"`;
- formulas.A6=`=${literal(`${data.conditionLabel?data.conditionLabel+'。':''}当前参与计算 `)}&COUNT(${selectedRange})&${literal(` / 本次候选 ${result.candidateCount}。`)}&IF(COUNT(${selectedRange})=0,"无有效值，无法计算",IF(B4=0,"均值为0，相对偏差无法计算",IF(COUNT(${selectedRange})=1,"仅1点，无法评价离散性",IF(H4<0.05,"相对均方根偏差 < 5%","相对均方根偏差 ≥ 5%，需重新筛选"))))&${literal(`。范围：${data.files.join('、')}`)}`;
+ const gapRange=gapIndex<0?null:`$${col(gapIndex+1)}$${first}:$${col(gapIndex+1)}$${last}`;
+ const passFormula=gapRange?`AND(H4<=$L$4,MAX(${gapRange})<=$L$5)`:'H4<=$L$4';
+ formulas.A6=`=${literal(`${result.conditionLabel}。当前参与计算 `)}&COUNT(${selectedRange})&${literal(` / 本次候选 ${result.candidateCount}。`)}&IF(COUNT(${selectedRange})=0,"无有效值，无法计算",IF(B4=0,"均值为0，相对偏差无法计算",IF(COUNT(${selectedRange})=1,"仅1点，无法评价离散性",IF(${passFormula},"符合本指标筛选上限","超出本指标上限，需重新筛选"))))&${literal(`。范围：${result.sourceFiles.join('、')}`)}`;
  for(const [ref,formula] of Object.entries(formulas))s.getRange(ref).formulas=[[formula]];
- for(const p of t.positions){const ref=`C${p.row}`;formulas[`D${p.row}`]=`=${ref}-$B$4`;formulas[`E${p.row}`]=`=D${p.row}^2`;s.getRange(`D${p.row}:E${p.row}`).formulas=[[formulas[`D${p.row}`],formulas[`E${p.row}`]]];s.getRange(`D${p.row}:E${p.row}`).setNumberFormat('0.00000000');}
+ for(const p of t.positions){
+  const ref=tableRef(t,p,metricIndex),dev=tableRef(t,p,deviationIndex),sq=tableRef(t,p,squareIndex);
+  formulas[dev]=`=${ref}-$B$4`;formulas[sq]=`=${dev}^2`;
+  for(const cell of [dev,sq]){s.getRange(cell).formulas=[[formulas[cell]]];s.getRange(cell).setNumberFormat('0.00000000');}
+  if(gapIndex>=0){const gap=tableRef(t,p,gapIndex);formulas[gap]=`=ABS($N$4-${ref})`;s.getRange(gap).formulas=[[formulas[gap]]];s.getRange(gap).setNumberFormat('0.00000000');}
+ }
  Object.assign(formulas,t.averageFormulas);
- const statistics={sheet:s.name,selectedRange,squareRange,formulas};statisticsManifest.push(statistics);
- for(const p of t.positions)if(result.bestIds.includes(p.id))s.getRange(tableRef(t,p,2)).format.fill='#FEF3C7';
+ const statistics={sheet:s.name,selectedRange,squareRange,metricIndex,deviationIndex,squareIndex,gapIndex,formulas};statisticsManifest.push(statistics);
+ for(const p of t.positions)if(result.bestIds.includes(p.id))s.getRange(tableRef(t,p,metricIndex)).format.fill='#FEF3C7';
  const excludedStart=t.bottom+3;line(s,excludedStart,'未入选原始数据（完整记录仍保留于全部参数）');
- const excluded=table(s,excludedStart+1,records.filter(r=>!ids.has(r.id)),{extras:[['未入选原因',r=>result.excludedReasons[String(r.id)]]],role:'excluded'});tableManifest.push(excluded);
+ const excluded=table(s,excludedStart+1,scopeRecords.filter(r=>!ids.has(r.id)),{extras:[['未入选原因',r=>result.excludedReasons[String(r.id)]]],role:'excluded'});tableManifest.push(excluded);
+ if(gapIndex>=0){
+  const retainedSet=new Set(selection.repeatedTests.selectedIds),refs=[];
+  for(const source of [t,excluded])for(const p of source.positions)if(retainedSet.has(p.id)&&Number.isFinite(byId.get(p.id).meta[result.key]))refs.push(tableRef(source,p,source.metricFields.find(f=>f.key===result.key).index));
+  s.getRange('M4').values=[['候选最大PCE (%)']];
+  formulas.N4=refs.length?`=IF(COUNT(${refs.join(',')})=0,"无法计算",MAX(${refs.join(',')}))`:'="无法计算"';s.getRange('N4').formulas=[[formulas.N4]];s.getRange('N4').setNumberFormat('0.00000"%"');
+ }
  const helper=excluded.bottom+4;
  if(selected.length){
-  const rawRefs=t.positions.map(p=>tableRef(t,p,2));
+  const rawRefs=t.positions.map(p=>tableRef(t,p,metricIndex));
   s.getRange(`A${helper}:B${helper}`).values=[['分布横向位置（无物理含义）',`${name} 入选原始值`]];
   const xs=selected.map((_,i)=>1+(((i*.618033988749895)%1)-.5)*.24);
   s.getRange(`A${helper+1}:A${helper+selected.length}`).values=xs.map(x=>[x]);
@@ -143,7 +163,7 @@ if(selection.repeatedTests.repeatedPointCount){
  const pceIndex=comparison.metricFields.find(f=>f.key==='Efficiency (%)').index,positionById=new Map(comparison.positions.map(p=>[p.id,p]));
  const formulas={},expectedValues={};
  for(const p of comparison.positions){
-  const group=groupById.get(p.id),refs=group.recordIds.map(id=>tableRef(comparison,positionById.get(id),pceIndex)),own=tableRef(comparison,p,pceIndex),maxRef=`B${p.row}`,gapRef=`C${p.row}`;
+  const group=groupById.get(p.id),refs=group.recordIds.map(id=>tableRef(comparison,positionById.get(id),pceIndex)),own=tableRef(comparison,p,pceIndex),maxRef=tableRef(comparison,p,comparison.labels.indexOf('同点最高PCE (%)')),gapRef=tableRef(comparison,p,comparison.labels.indexOf('与最高PCE相对差'));
   formulas[maxRef]=`=IF(COUNT(${refs.join(',')})=0,"无法计算",MAX(${refs.join(',')}))`;
   formulas[gapRef]=`=IF(COUNT(${own},${maxRef})<2,"无法计算",IF(${own}=${maxRef},0,IF(MIN(${own},${maxRef})<=0,"无法计算",ABS(${own}-${maxRef})/MIN(${own},${maxRef}))))`;
   const valid=group.recordIds.map(id=>byId.get(id).meta['Efficiency (%)']).filter(v=>typeof v==='number'&&Number.isFinite(v));
@@ -178,8 +198,54 @@ for(const [index,r] of records.entries()){
 }
 if(records.length){const last=col(records.length*5-1);raw.getRange(`A4:${last}${maxRawRow}`).format.rowHeight=17;raw.getRange(`A1:${last}1`).format.rowHeight=titleHeight;raw.getRange(`A2:${last}2`).format.rowHeight=sourceHeight;raw.getRange(`A3:${last}3`).format.rowHeight=20;}
 raw.freezePanes.freezeRows(3);views.push({sheet:raw.name,range:`A1:${col(Math.min(14,Math.max(4,records.length*5-1)))}18`,label:'raw'});
-wb.recalculate();await (await SpreadsheetFile.exportXlsx(wb)).save(output);
-const manifest={version:6,chartManifest,tableManifest,rawManifest,statisticsManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
+const summaryManifest={sheet:overview.name,prefix:fields.slice(0,12).map(f=>f[0]),sections:[],cells:{}};
+const summaryHeaders=[...summaryManifest.prefix,'Jsc入选n','Voc入选n','FF入选n','PCE入选n','Jsc CV (%)','Voc CV (%)','FF CV (%)','PCE CV (%)','提示'];
+const pceSummaryHeaders=[...summaryManifest.prefix,'PCE入选n','PCE CV (%)','面积 (cm²)','提示'];
+const bottom=12+2*selection.scopes.length;
+base(overview,`A1:U${bottom}`);overview.tabColor=ink;overview.getRange('A:A').format.columnWidth=29;overview.getRange('B:T').format.columnWidth=15;overview.getRange('L:L').format.columnWidth=23;overview.getRange('U:U').format.columnWidth=40;
+function summaryLine(row,text){overview.getRange(`A${row}:U${row}`).merge();overview.getRange(`A${row}`).values=[[text]];overview.getRange(`A${row}:U${row}`).format={wrapText:true,rowHeight:30};}
+function summaryFormula(ref,formula,expectedValue){overview.getRange(ref).formulas=[[formula]];summaryManifest.cells[ref]={formula,expectedValue};}
+function scopeDates(scope,ids){const chosen=new Set(ids||scope.recordIds);return [...new Set(records.filter(r=>chosen.has(r.id)).map(r=>(r.meta['Time stamp']||'').split(' ')[0]).filter(Boolean))].sort().join('、')||'未提供';}
+summaryLine(1,'四项独立筛选结果总结');summaryLine(2,'四项分别引用各自筛选均值，入选集合可以不同。其余参数留空；这些均值不组成一条真实器件记录。CV=总体标准差÷均值绝对值。');
+const secondTitle=6+selection.scopes.length,secondHeader=secondTitle+2;
+summaryLine(secondTitle,'PCE筛选后的全部参数总结');summaryLine(secondTitle+1,'全部参数均引用本条件PCE入选记录的平均值行。PCE直接平均原始报告值；不由其他均值相乘重算。');
+for(const [kind,start] of [['independent',4],['pce',secondHeader]]){
+ const heads=kind==='pce'?pceSummaryHeaders:summaryHeaders,lastCol=col(heads.length);
+ overview.getRange(`A${start}:${lastCol}${start}`).values=[heads];header(overview,`A${start}:${lastCol}${start}`);overview.getRange(`A${start}:${lastCol}${start}`).format.rowHeight=44;
+ const section={kind,start,rows:[]};summaryManifest.sections.push(section);
+ for(const [i,scope] of selection.scopes.entries()){
+  const row=start+1+i;overview.getRange(`A${row}:${lastCol}${row}`).format={fill:i%2?'#E8F0FA':'#FFFFFF',rowHeight:28};box(overview,`A${row}:${lastCol}${row}`);overview.getRange(`A${row}`).values=[[scope.label]];
+  const pce=selection.metrics[scope.metricNames.PCE],pceSheet=scope.metricNames.PCE+'筛选',pceTable=tableManifest.find(t=>t.sheet===pceSheet&&t.role==='selected');
+  overview.getRange(`L${row}`).values=[[scopeDates(scope,kind==='pce'?pce.selectedIds:null)]];
+  section.rows.push({row,label:scope.label,metricNames:scope.metricNames,pceIds:pce.selectedIds});
+  for(const [j,metric] of ['Jsc','Voc','FF','PCE'].entries()){
+   const name=scope.metricNames[metric],result=selection.metrics[name],sheet=name+'筛选',stats=statisticsManifest.find(st=>st.sheet===sheet);
+   if(kind==='independent'){
+    summaryFormula(`${col(j+2)}${row}`,`='${sheet}'!B4`,result.mean??'无法计算');
+    summaryFormula(`${col(j+13)}${row}`,`=COUNT('${sheet}'!${stats.selectedRange})`,result.count);
+    summaryFormula(`${col(j+17)}${row}`,`='${sheet}'!H4`,result.relativeRmse??'无法计算');
+   }
+  }
+  if(kind==='pce'){
+   for(const [j,key] of keys.slice(0,10).entries()){
+    const field=pceTable.metricFields.find(f=>f.key===key),ref=`${col(field.index+1)}${pceTable.averageRow}`,vals=pce.selectedIds.map(id=>byId.get(id).meta[key]).filter(v=>typeof v==='number'&&Number.isFinite(v));
+    summaryFormula(`${col(j+2)}${row}`,`='${pceSheet}'!${ref}`,vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:'无法计算');
+   }
+   const stats=statisticsManifest.find(st=>st.sheet===pceSheet);summaryFormula(`M${row}`,`=COUNT('${pceSheet}'!${stats.selectedRange})`,pce.count);summaryFormula(`N${row}`,`='${pceSheet}'!H4`,pce.relativeRmse??'无法计算');
+   const field=pceTable.metricFields.find(f=>f.key==='Area (cm^2)'),areaRef=`${col(field.index+1)}${pceTable.averageRow}`,areas=pce.selectedIds.map(id=>byId.get(id).meta['Area (cm^2)']).filter(v=>typeof v==='number'&&Number.isFinite(v));
+   summaryFormula(`O${row}`,`='${pceSheet}'!${areaRef}`,areas.length?areas.reduce((a,b)=>a+b,0)/areas.length:'无法计算');
+   summaryFormula(`P${row}`,`=IF(M${row}=0,"无有效PCE",IF(M${row}=1,"仅1点，无法评价离散性",""))`,pce.count===0?'无有效PCE':pce.count===1?'仅1点，无法评价离散性':'');
+  }else{
+   const single=['Jsc','Voc','FF','PCE'].some(metric=>selection.metrics[scope.metricNames[metric]].count===1);
+   summaryFormula(`U${row}`,`=IF(COUNTIFS(M${row}:P${row},1)>0,"存在单点指标，无法评价其离散性","")`,single?'存在单点指标，无法评价其离散性':'');
+  }
+  overview.getRange(`B${row}:K${row}`).setNumberFormat('0.00000');overview.getRange(`D${row}:E${row}`).setNumberFormat('0.00000"%"');
+  if(kind==='independent'){overview.getRange(`M${row}:P${row}`).setNumberFormat('0');overview.getRange(`Q${row}:T${row}`).setNumberFormat('0.00000%');}else{overview.getRange(`M${row}`).setNumberFormat('0');overview.getRange(`N${row}`).setNumberFormat('0.00000%');overview.getRange(`O${row}`).setNumberFormat('0.00000');}
+ }
+}
+views.unshift({sheet:overview.name,range:`A1:U${bottom}`,label:'summary'});
+wb.recalculate();console.log((await wb.inspect({kind:'match',searchTerm:'#REF!|#DIV/0!|#VALUE!|#NAME\\?|#NUM!',options:{useRegex:true,maxResults:10},maxChars:1200})).ndjson);await (await SpreadsheetFile.exportXlsx(wb)).save(output);
+const manifest={version:7,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
 run('finalize_workbook.py',['--data',input,'--manifest',`${output}.manifest.json`,'--workbook',output]);
 if(options['--preview-dir']){const dir=path.resolve(options['--preview-dir']);await fs.mkdir(dir,{recursive:true});const final=await SpreadsheetFile.importXlsx(await FileBlob.load(output));for(const view of views){const png=await final.render({sheetName:view.sheet,range:view.range,scale:1.3,format:'png'});await fs.writeFile(path.join(dir,`${view.label}_preview.png`),new Uint8Array(await png.arrayBuffer()));}}
 console.log(JSON.stringify({saved:output,records:records.length,distributionCharts:chartManifest.length,jvCurves:0}));

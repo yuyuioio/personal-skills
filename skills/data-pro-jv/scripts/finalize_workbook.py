@@ -35,7 +35,7 @@ def col_number(label):
 
 
 def verify(workbook,manifest,data):
-    assert manifest.get('version')==6,'Use the version 6 point-selection and parameter-average manifest'
+    assert manifest.get('version')==7,'Use the version 7 selection, column order and two-summary manifest'
     expected=select_all(data)
     assert manifest['selection']==expected,'Input selection changed'
     records={r['id']:dict(r,**expected['repeatedTests']['annotations'][str(r['id'])]) for r in data['uniqueRecords']}
@@ -46,9 +46,10 @@ def verify(workbook,manifest,data):
     root=E.fromstring(payload['xl/workbook.xml'])
     targets={r.get('Id'):posixpath.normpath(posixpath.join('xl',r.get('Target'))) if not r.get('Target').startswith('/') else r.get('Target').lstrip('/') for r in E.fromstring(payload['xl/_rels/workbook.xml.rels'])}
     sheets={s.get('name'):targets[s.get('{'+NS['r']+'}id')] for s in root.findall('s:sheets/s:sheet',NS)}
-    required={'Jsc筛选','Voc筛选','PCE筛选','FF筛选','全部参数','全部原始扫描'}
+    required={name+'筛选' for name in expected['metrics']}|{'总结','全部参数','全部原始扫描'}
     if expected['repeatedTests']['repeatedPointCount']:required.update({'保留结果','重复测试对比'})
     assert set(sheets)==required
+    assert next(iter(sheets))=='总结','The first worksheet must contain both summaries'
     strings=[]
     if 'xl/sharedStrings.xml' in payload:
         strings=[''.join(t.text or '' for t in si.iter('{'+NS['s']+'}t')) for si in E.fromstring(payload['xl/sharedStrings.xml'])]
@@ -61,6 +62,7 @@ def verify(workbook,manifest,data):
         if cell.get('t')=='s':return strings[int(v.text)]
         if cell.get('t')=='inlineStr':return ''.join(t.text or '' for t in cell.iter('{'+NS['s']+'}t'))
         if cell.get('t')=='e':raise ValueError(f'Formula error at {sheet}!{ref}')
+        if cell.get('t')=='str':return (v.text or '') if v is not None else ''
         return v.text if v is not None else None
 
     def table_ref(table,position,index):
@@ -69,6 +71,7 @@ def verify(workbook,manifest,data):
 
     for table in manifest['tableManifest']:
         assert table['orientation']=='rows'
+        assert table['labels'][:12]==['编号','Jsc (mA/cm²)','Voc (V)','FF (%)','PCE (%)','Pmax (mW)','Imax (mA)','Vmax (V)','Rs (Ω)','Rsh (Ω)','Isc (mA)','日期']
         for index,label in enumerate(table['labels']):
             assert value(table['sheet'],f"{column(index+1)}{table['start']}")==label
         for p in table['positions']:
@@ -102,7 +105,7 @@ def verify(workbook,manifest,data):
         comparison=next(t for t in manifest['tableManifest'] if t['role']=='repeat-comparison')
         repeat_ids={i for g in expected['repeatedTests']['groups'] if len(g['recordIds'])>1 for i in g['recordIds']}
         assert [p['id'] for p in comparison['positions']]==[i for i in records if i in repeat_ids]
-    assert len(manifest['statisticsManifest'])==4+bool(expected['repeatedTests']['repeatedPointCount'])
+    assert len(manifest['statisticsManifest'])==len(expected['metrics'])+bool(expected['repeatedTests']['repeatedPointCount'])
     for statistics in manifest['statisticsManifest']:
         sheet=statistics['sheet']
         for ref,formula in statistics['formulas'].items():
@@ -118,13 +121,46 @@ def verify(workbook,manifest,data):
             actual=value(sheet,ref)
             assert (actual=='无法计算' and v is None) or (actual is not None and v is not None and close(actual,v))
         table=next(t for t in manifest['tableManifest'] if t['sheet']==sheet and t['role']=='selected')
+        statistics=next(st for st in manifest['statisticsManifest'] if st['sheet']==sheet)
         display_ids=[r['id'] for r in data['uniqueRecords'] if r['id'] in result['selectedIds']]
         assert [p['id'] for p in table['positions']]==display_ids,'Display must preserve original source order'
         for p in table['positions']:
-            assert close(value(sheet,table_ref(table,p,2)),records[p['id']]['meta'][result['key']])
+            assert close(value(sheet,table_ref(table,p,statistics['metricIndex'])),records[p['id']]['meta'][result['key']])
             deviation=records[p['id']]['meta'][result['key']]-result['mean']
-            assert close(value(sheet,f"D{p['row']}"),deviation)
-            assert close(value(sheet,f"E{p['row']}"),deviation**2)
+            assert close(value(sheet,table_ref(table,p,statistics['deviationIndex'])),deviation)
+            assert close(value(sheet,table_ref(table,p,statistics['squareIndex'])),deviation**2)
+            if statistics['gapIndex']>=0:
+                assert close(value(sheet,table_ref(table,p,statistics['gapIndex'])),abs(result['bestValue']-records[p['id']]['meta'][result['key']]))
+                assert abs(result['bestValue']-records[p['id']]['meta'][result['key']])<=result['maxAbsoluteGapAllowed']+1e-12
+        assert set(result['bestIds'])<=set(result['selectedIds']),'Every tied candidate maximum must be retained'
+    summary=manifest['summaryManifest']
+    assert summary['sheet']=='总结' and [s['kind'] for s in summary['sections']]==['independent','pce']
+    for section in summary['sections']:
+        for index,label in enumerate(summary['prefix']):
+            assert value('总结',f"{column(index+1)}{section['start']}")==label
+        assert len(section['rows'])==len(expected['scopes'])
+        for row,scope in zip(section['rows'],expected['scopes']):
+            assert value('总结',f"A{row['row']}")==scope['label']
+            if section['kind']=='independent':
+                for index,name in enumerate(['Jsc','Voc','FF','PCE'],2):
+                    result=expected['metrics'][scope['metricNames'][name]]
+                    actual=value('总结',f"{column(index)}{row['row']}")
+                    assert (result['mean'] is None and actual=='无法计算') or close(actual,result['mean'])
+                assert all(value('总结',f"{column(index)}{row['row']}") is None for index in range(6,12))
+            else:
+                result=expected['metrics'][scope['metricNames']['PCE']]
+                assert row['pceIds']==result['selectedIds']
+                keys=['Jsc (mA/cm^2)','Voc (V)','Fill Factor (%)','Efficiency (%)','Pmax (mW)','Imax (mA)','Vmax (V)','Rs (ohm)','Rsh (ohm)','Isc (mA)']
+                for index,key in enumerate(keys,2):
+                    vals=[records[i]['meta'].get(key) for i in result['selectedIds']]
+                    vals=[v for v in vals if isinstance(v,(float,int)) and math.isfinite(v)]
+                    actual=value('总结',f"{column(index)}{row['row']}")
+                    assert (not vals and actual=='无法计算') or (vals and close(actual,math.fsum(vals)/len(vals)))
+    for ref,spec in summary['cells'].items():
+        node=cells['总结'][ref]
+        assert node.find('s:f',NS).text.lstrip('=')==spec['formula'].lstrip('=')
+        actual=value('总结',ref)
+        assert (actual==spec['expectedValue']) if isinstance(spec['expectedValue'],str) else close(actual,spec['expectedValue'])
     assert [r['id'] for r in manifest['rawManifest']]==list(records)
     for index,raw in enumerate(manifest['rawManifest']):
         points=records[raw['id']].get('points',[])
