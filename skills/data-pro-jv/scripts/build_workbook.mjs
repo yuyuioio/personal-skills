@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Workbook, SpreadsheetFile, FileBlob } from '@oai/artifact-tool';
+import { summaryMaximumHeaders, summaryMaximumSpecs } from './summary_maxima.mjs';
 
 const options={},argv=process.argv.slice(2);
 for(let i=0;i<argv.length;i+=2){
@@ -199,12 +200,12 @@ for(const [index,r] of records.entries()){
 if(records.length){const last=col(records.length*5-1);raw.getRange(`A4:${last}${maxRawRow}`).format.rowHeight=17;raw.getRange(`A1:${last}1`).format.rowHeight=titleHeight;raw.getRange(`A2:${last}2`).format.rowHeight=sourceHeight;raw.getRange(`A3:${last}3`).format.rowHeight=20;}
 raw.freezePanes.freezeRows(3);views.push({sheet:raw.name,range:`A1:${col(Math.min(14,Math.max(4,records.length*5-1)))}18`,label:'raw'});
 const summaryPrefix=[...fields.slice(0,11).map(f=>f[0]),'良品率 (a/b)',fields[11][0]];
-const summaryManifest={sheet:overview.name,prefix:summaryPrefix,sections:[],cells:{},pointCountHelpers:[]};
-const summaryHeaders=[...summaryPrefix,'Jsc入选n','Voc入选n','FF入选n','PCE入选n','Jsc CV (%)','Voc CV (%)','FF CV (%)','PCE CV (%)','提示','总测试点数 b'];
+const summaryManifest={sheet:overview.name,prefix:summaryPrefix,sections:[],cells:{},pointCountHelpers:[],maximumCells:[]};
+const summaryHeaders=[...summaryPrefix,'Jsc入选n','Voc入选n','FF入选n','PCE入选n','Jsc CV (%)','Voc CV (%)','FF CV (%)','PCE CV (%)','提示','总测试点数 b',...summaryMaximumHeaders];
 const pceSummaryHeaders=[...summaryPrefix,'PCE入选n','PCE CV (%)','面积 (cm²)','提示','总测试点数 b'];
 const bottom=12+2*selection.scopes.length;
-base(overview,`A1:W${bottom}`);overview.tabColor=ink;overview.getRange('A:A').format.columnWidth=29;overview.getRange('B:W').format.columnWidth=15;overview.getRange('L:L').format.columnWidth=22;overview.getRange('M:M').format.columnWidth=23;overview.getRange('V:V').format.columnWidth=40;
-function summaryLine(row,text){overview.getRange(`A${row}:W${row}`).merge();overview.getRange(`A${row}`).values=[[text]];overview.getRange(`A${row}:W${row}`).format={wrapText:true,rowHeight:30};}
+base(overview,`A1:AA${bottom}`);overview.tabColor=ink;overview.getRange('A:A').format.columnWidth=29;overview.getRange('B:AA').format.columnWidth=15;overview.getRange('L:L').format.columnWidth=22;overview.getRange('M:M').format.columnWidth=23;overview.getRange('V:V').format.columnWidth=40;overview.getRange('X:AA').format.columnWidth=20;
+function summaryLine(row,text){overview.getRange(`A${row}:AA${row}`).merge();overview.getRange(`A${row}`).values=[[text]];overview.getRange(`A${row}:AA${row}`).format={wrapText:true,rowHeight:30};}
 function summaryFormula(ref,formula,expectedValue){overview.getRange(ref).formulas=[[formula]];summaryManifest.cells[ref]={formula,expectedValue};}
 function scopeDates(scope,ids){const chosen=new Set(ids||scope.recordIds);return [...new Set(records.filter(r=>chosen.has(r.id)).map(r=>(r.meta['Time stamp']||'').split(' ')[0]).filter(Boolean))].sort().join('、')||'未提供';}
 // Denominator counts physical sample/point groups, including groups with no valid metric.
@@ -226,7 +227,7 @@ function usableCount(result,sheet,stats){
  if(stats.gapIndex>=0){const first=tableManifest.find(t=>t.sheet===sheet&&t.role==='selected').positions[0]?.row??29,last=tableManifest.find(t=>t.sheet===sheet&&t.role==='selected').positions.at(-1)?.row??29;tests.push(`MAX('${sheet}'!$${col(stats.gapIndex+1)}$${first}:$${col(stats.gapIndex+1)}$${last})<='${sheet}'!$L$5`);}
  return `IF(AND(${tests.join(',')}),COUNT('${sheet}'!${stats.selectedRange}),0)`;
 }
-summaryLine(1,'四项独立筛选结果总结');summaryLine(2,'四项分别引用各自筛选均值，集合可以不同。良品率分别列a/b；b按同样品同点合并重复测量，无效点仍计入。CV=总体标准差÷均值绝对值。');
+summaryLine(1,'四项独立筛选结果总结');summaryLine(2,'四项分别引用各自筛选均值，集合可以不同。末尾四项最大值取本条件逐点择优后的全部候选，各自可能来自不同记录。良品率分别列a/b；b合并同点重复测量，含无效点。CV=总体标准差÷均值绝对值。');
 const secondTitle=6+selection.scopes.length,secondHeader=secondTitle+2;
 summaryLine(secondTitle,'PCE筛选后的全部参数总结');summaryLine(secondTitle+1,'全部参数引用同一PCE入选集合的平均值。良品率a为PCE筛选后可用点数，b为本条件总样品点数（合并重复测量，含无效点）。');
 for(const [kind,start] of [['independent',4],['pce',secondHeader]]){
@@ -246,6 +247,13 @@ for(const [kind,start] of [['independent',4],['pce',secondHeader]]){
     summaryFormula(`${col(j+2)}${row}`,`='${sheet}'!B4`,result.mean??'无法计算');
     summaryFormula(`${col(j+14)}${row}`,`=COUNT('${sheet}'!${stats.selectedRange})`,result.count);
     summaryFormula(`${col(j+18)}${row}`,`='${sheet}'!H4`,result.relativeRmse??'无法计算');
+   }
+  }
+  if(kind==='independent'){
+   for(const [j,spec] of summaryMaximumSpecs(scope,records,selection.repeatedTests.selectedIds,allTable).entries()){
+    const ref=`${col(j+24)}${row}`;summaryFormula(ref,spec.formula,spec.expectedValue);
+    overview.getRange(ref).setNumberFormat(j>=2?'0.00000"%"':'0.00000');
+    summaryManifest.maximumCells.push({ref,conditionLabel:scope.label,...spec});
    }
   }
   let yieldFormula,yieldExpected;
@@ -270,9 +278,9 @@ for(const [kind,start] of [['independent',4],['pce',secondHeader]]){
   if(kind==='independent'){overview.getRange(`N${row}:Q${row}`).setNumberFormat('0');overview.getRange(`R${row}:U${row}`).setNumberFormat('0.00000%');}else{overview.getRange(`N${row}`).setNumberFormat('0');overview.getRange(`O${row}`).setNumberFormat('0.00000%');overview.getRange(`P${row}`).setNumberFormat('0.00000');}
  }
 }
-views.unshift({sheet:overview.name,range:`A1:W${bottom}`,label:'summary'});
+views.unshift({sheet:overview.name,range:`A1:AA${bottom}`,label:'summary'});
 wb.recalculate();console.log((await wb.inspect({kind:'match',searchTerm:'#REF!|#DIV/0!|#VALUE!|#NAME\\?|#NUM!',options:{useRegex:true,maxResults:10},maxChars:1200})).ndjson);await (await SpreadsheetFile.exportXlsx(wb)).save(output);
-const manifest={version:8,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
+const manifest={version:9,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
 run('finalize_workbook.py',['--data',input,'--manifest',`${output}.manifest.json`,'--workbook',output]);
 if(options['--preview-dir']){const dir=path.resolve(options['--preview-dir']);await fs.mkdir(dir,{recursive:true});const final=await SpreadsheetFile.importXlsx(await FileBlob.load(output));for(const view of views){const png=await final.render({sheetName:view.sheet,range:view.range,scale:1.3,format:'png'});await fs.writeFile(path.join(dir,`${view.label}_preview.png`),new Uint8Array(await png.arrayBuffer()));}}
 console.log(JSON.stringify({saved:output,records:records.length,distributionCharts:chartManifest.length,jvCurves:0}));

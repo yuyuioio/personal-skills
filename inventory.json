@@ -12,13 +12,13 @@
     "matlab_draw"
   ],
   "files": {
-    "skills/data-pro-jv/SKILL.md": "f9cda03588683638dd7de8a944916cf580e547d1feb44743ac88de300026c40d",
+    "skills/data-pro-jv/SKILL.md": "cf9ee455eb61edf3c262a6700a3a4e0d89ecb9d50cdab4b7f9bceb5bee66eb73",
     "skills/data-pro-jv/agents/openai.yaml": "6b91712dc1749209fa93dc65970996a5873594462cc0fb731181a47b00ec7445",
-    "skills/data-pro-jv/references/metric-selection.md": "47540eb24207e9ae0009c5c79781c82a3a4e1ece7dabf0149d56a42eeebfb82c",
+    "skills/data-pro-jv/references/metric-selection.md": "d055d8fdf2203d46671979077044f08518cdd08ab615d6995e146954f485e597",
     "skills/data-pro-jv/references/repeated-measurements.md": "d9909b086c5a634c4014b1b60005185dae43fff9d5a8325c7767d3c5510b2795",
-    "skills/data-pro-jv/scripts/build_workbook.mjs": "a8ba35c3bfd8fe66fa3a37e4dc71d5d025e732af374f5b18f9e32d12abefa1ad",
+    "skills/data-pro-jv/scripts/build_workbook.mjs": "74f2617d39630fff785d2df90893ef1706a2a26f95000512bee43f45cb992350",
     "skills/data-pro-jv/scripts/extract_jv.py": "41278766da1c9c7d1264d40332633198d3032f0a9fb28e696fea833db0bfdc7e",
-    "skills/data-pro-jv/scripts/finalize_workbook.py": "a1b7993671288393756b9ddb10478776d89f70bd5569051144e4a899d770b178",
+    "skills/data-pro-jv/scripts/finalize_workbook.py": "261e83a2f5c039e40bef2dbee22a953028a3f864692822787d7019ae6314f03d",
     "skills/data-pro-jv/scripts/merge_batches.py": "7983d5d1fa272419f4804e90887671216154096b163f30d16212cbca319c5fb3",
     "skills/data-pro-jv/scripts/select_metrics.py": "b2e3bae1d915e273e604fd8b3d2e01fcd9db68e403c8ddf4785fabc46335e7f9",
     "skills/data-pro-jv/scripts/select_repeated.py": "a1ce356b4f297f648c2b60ea804b5972842eb35cbf830bdd882dba7dafff786b",
@@ -138,6 +138,8 @@
     "skills/endnote-summary/scripts/_vendor/markdown-3.9.dist-info/top_level.txt": "200c6cf31eb5f115e81f5b82a9e2cbc57b0379f26f13f98889baff338b0e9729",
     "skills/endnote-summary/scripts/_vendor/markdown-3.9.dist-info/WHEEL": "ff309ddcdd65ebd02bc724dbf2bcc4a0ff53a5b61792a44548d383e4ebb19d3b",
     "skills/endnote-summary/scripts/_vendor/markdown-3.9.dist-info/licenses/LICENSE.md": "7ba4eb6d10b32b2d11dce13821340351cdbbb30ba8ccc67841db2ffd86e79aca",
-    "tests/endnote-summary/test_zotero_sync.py": "b516f413d6a39d7e851be4fa457b7079f459d768de35ea3795acd15fdc95a39e"
+    "tests/endnote-summary/test_zotero_sync.py": "b516f413d6a39d7e851be4fa457b7079f459d768de35ea3795acd15fdc95a39e",
+    "skills/data-pro-jv/scripts/summary_maxima.mjs": "5c5d4c8c539904ef22b8e573034cdf85752510d2c70f9a3829dc52d88b4bfe50",
+    "tests/data-pro-jv/test_summary_maxima.mjs": "57e1611f8aeab2519eb103be6de3b4bcf50581e15d687fd4c8cc5e134422510a"
   }
 }

@@ -35,7 +35,7 @@ def col_number(label):
 
 
 def verify(workbook,manifest,data):
-    assert manifest.get('version')==8,'Use the version 8 physical-point yield and two-summary manifest'
+    assert manifest.get('version')==9,'Use the version 9 condition maxima, physical-point yield and two-summary manifest'
     expected=select_all(data)
     assert manifest['selection']==expected,'Input selection changed'
     records={r['id']:dict(r,**expected['repeatedTests']['annotations'][str(r['id'])]) for r in data['uniqueRecords']}
@@ -169,6 +169,32 @@ def verify(workbook,manifest,data):
                     vals=[v for v in vals if isinstance(v,(float,int)) and math.isfinite(v)]
                     actual=value('总结',f"{column(index)}{row['row']}")
                     assert (not vals and actual=='无法计算') or (vals and close(actual,math.fsum(vals)/len(vals)))
+    maximum_specs=summary.get('maximumCells',[])
+    assert len(maximum_specs)==4*len(expected['scopes']),'Every condition needs four maximum values'
+    all_table=next(t for t in manifest['tableManifest'] if t['sheet']=='全部参数')
+    all_positions={p['id']:p for p in all_table['positions']}
+    retained=set(expected['repeatedTests']['selectedIds'])
+    independent=next(s for s in summary['sections'] if s['kind']=='independent')
+    for row,scope in zip(independent['rows'],expected['scopes']):
+        candidate_ids=[r['id'] for r in data['uniqueRecords'] if r['id'] in scope['recordIds'] and r['id'] in retained]
+        for offset,(metric,key,label) in enumerate([
+            ('Jsc','Jsc (mA/cm^2)','Jsc最大值 (mA/cm²)'),
+            ('Voc','Voc (V)','Voc最大值 (V)'),
+            ('FF','Fill Factor (%)','FF最大值 (%)'),
+            ('PCE','Efficiency (%)','PCE最大值 (%)')]):
+            ref=f"{column(24+offset)}{row['row']}"
+            assert value('总结',f"{column(24+offset)}{independent['start']}")==label
+            spec=next(s for s in maximum_specs if s['ref']==ref)
+            assert spec['conditionLabel']==scope['label'] and spec['metric']==metric and spec['key']==key
+            assert spec['recordIds']==candidate_ids
+            field=next(f for f in all_table['metricFields'] if f['key']==key)
+            refs=','.join(f"'全部参数'!{table_ref(all_table,all_positions[i],field['index'])}" for i in candidate_ids)
+            formula=f'=IF(COUNT({refs})=0,"无法计算",MAX({refs}))' if refs else '="无法计算"'
+            assert spec['formula']==summary['cells'][ref]['formula']==formula
+            values=[records[i]['meta'].get(key) for i in candidate_ids]
+            values=[v for v in values if isinstance(v,(float,int)) and not isinstance(v,bool) and math.isfinite(v)]
+            actual=value('总结',ref)
+            assert (not values and actual=='无法计算') or (values and close(actual,max(values)))
     for ref,spec in summary['cells'].items():
         node=cells['总结'][ref]
         assert node.find('s:f',NS).text.lstrip('=')==spec['formula'].lstrip('=')
