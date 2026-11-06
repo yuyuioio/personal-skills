@@ -25,12 +25,12 @@
     "skills/data-pro-thickness-calibration/SKILL.md": "d26827984f3abd1623284117df0044d462d1047b68ef0274cb849c5f9ac699a2",
     "skills/data-pro-thickness-calibration/agents/openai.yaml": "1066f6ec673c8ec4cb3def1cead21e0deb5f094ba77b043419f6bfca7355a89e",
     "skills/data-pro-thickness-calibration/scripts/calibrate.py": "bca826d9ba29439625e02044d6c306ea3b10c94cdcd89658dce2f6e685bf565c",
-    "skills/endnote-summary/SKILL.md": "eb236f5c0007629dac7cafe491e53a8481e2377980a631bb7770c6c337fc98fc",
+    "skills/endnote-summary/SKILL.md": "13c0e177ceec1062fe591cf8b2dc265a88ff1ad0db44f0dd58a79d30944842d6",
     "skills/endnote-summary/assets/summary_template.md": "d70d968256d15bfe10260e0c28bf621214308d53cc4a0ba05dce86fd2b62e64c",
-    "skills/endnote-summary/references/acquisition.md": "0bafdcbebbd5bd7b42f2f4d9cbeb270de3b18eac631b5228636c1eaac2f774a3",
+    "skills/endnote-summary/references/acquisition.md": "eff9c1b49c692b7748f8c47120ed49ef5b2055027100f1d457f63762427ca93e",
     "skills/endnote-summary/references/critical_appraisal.md": "4b94e11f450201f5a9d604ee37e9496e49aad379b35044508072559e2dfe670d",
     "skills/endnote-summary/references/desktop_writeback.md": "6c135a3759fc248a49d8386af2a718f6d48cbd537db67b8ea6a486bf582678dd",
-    "skills/endnote-summary/references/figure_reading.md": "9880f1fe44c079c4e9b3fa5d551fb287724bfbb5844376a2c4b5ad3b70605110",
+    "skills/endnote-summary/references/figure_reading.md": "e89abd7f6367324e283d1034a133539f6feaac785ea9427b09551a9283525509",
     "skills/endnote-summary/references/integration_sources.md": "d1d9eb2f58c89fe5288d638a07f2143acdcb55300b9744d3c7dc2045db47ff25",
     "skills/endnote-summary/references/matching.md": "1c07b95a1e5fdfd080a6069323913781ffe32c41776a3fcd5ffae717f6d02d2a",
     "skills/endnote-summary/references/pdf_support.md": "d108cf2b36355ab37eb5962933f4d09785ec002f3105c506129320209306b9d2",
@@ -97,8 +97,8 @@
     "third_party/scientific-agent-skills/LICENSE.md": "5c793d8fe1c553d49c305f3c178ac360b6d32607bdf1bca06b10d3ba9881d78f",
     "tests/data-pro-jv/test_metrics.py": "f011a4f1d217cc717fe211838fd9a6c27fb017c3d8a00c4bfff862736bce394b",
     "tests/data-pro-jv/test_selection.py": "e2357109e4b844cd4c54cab56f088a46424970d9bc5ad87dfc652048744f481a",
-    "skills/endnote-summary/references/zotero_sync.md": "4f2877cacbc9440beb216683e183af41e56cbc84434bc48f54b84af86b303d34",
-    "skills/endnote-summary/scripts/zotero_sync.py": "5f2bb179f106b6eab125a9e0a179031e9f39ef55d228602c397e1d569c9cb29e",
+    "skills/endnote-summary/references/zotero_sync.md": "7a2c23aa07b62e325e8ace71f914ca515bf67c54766e0a0900859862d9976382",
+    "skills/endnote-summary/scripts/zotero_sync.py": "89635e3fd50434d546321e57bf4375592d747732240bc8324d22088734e8c65f",
     "skills/endnote-summary/scripts/_vendor/markdown/blockparser.py": "8f80902265698aaee0f69cfcc02c6fcd3eb55ff4f68920235eea47264f0fdde0",
     "skills/endnote-summary/scripts/_vendor/markdown/blockprocessors.py": "928639aeaf038b1cc108772abaf649a7ac76258c811a3af0c4c58d66177a0f65",
     "skills/endnote-summary/scripts/_vendor/markdown/core.py": "b31c6908bbaa4b4f53ac87b378e3324728f7e0a13efcbf9997c9830616df4201",
@@ -140,6 +140,9 @@
     "skills/endnote-summary/scripts/_vendor/markdown-3.9.dist-info/licenses/LICENSE.md": "7ba4eb6d10b32b2d11dce13821340351cdbbb30ba8ccc67841db2ffd86e79aca",
     "tests/endnote-summary/test_zotero_sync.py": "b516f413d6a39d7e851be4fa457b7079f459d768de35ea3795acd15fdc95a39e",
     "skills/data-pro-jv/scripts/summary_maxima.mjs": "5c5d4c8c539904ef22b8e573034cdf85752510d2c70f9a3829dc52d88b4bfe50",
-    "tests/data-pro-jv/test_summary_maxima.mjs": "57e1611f8aeab2519eb103be6de3b4bcf50581e15d687fd4c8cc5e134422510a"
+    "tests/data-pro-jv/test_summary_maxima.mjs": "57e1611f8aeab2519eb103be6de3b4bcf50581e15d687fd4c8cc5e134422510a",
+    "skills/endnote-summary/scripts/zotero_local_api.py": "eae7834846b4673598a750db46af07f5aae351c89eb4df8cd7b6b2c7e54e800c",
+    "tests/endnote-summary/test_dual_formats.py": "b43b14189f19eea1efc9f3008384d640af39840fe6b04fbac8d6d4960c0f8a08",
+    "tests/endnote-summary/test_native.mjs": "fc9773e1e873347b8d0f14dd4ba514eb152d0e1285317e11ef8fd11a9d689c4d"
   }
 }

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Prepare a verified Zotero attachment plan, then verify native Zotero writes.
 
-Reads the local Desktop API only. The emitted JavaScript uses Zotero's own
-Attachments API in Tools > Developer > Run JavaScript; no SQLite writes.
+Uses official Zotero 10 local writes by default, with explicit legacy JavaScript
+fallback only. Checks local PDFs and verifies Markdown/HTML plus image resources.
 """
 from __future__ import annotations
 
@@ -112,6 +112,49 @@ def candidates(title, doi):
     return matches[0]
 
 
+def probe(args):
+    """Check actual local PDF files before attempting any new download."""
+    parent = candidates(args.title, args.doi or '')
+    rows = get('items/' + parent['key'] + '/children')
+    files = []
+    for item in rows:
+        data = item['data']
+        if data.get('deleted') or data.get('contentType') != 'application/pdf':
+            continue
+        row = {'attachment_key': item['key'], 'title': data.get('title', ''),
+               'status': 'unchecked', 'path': '', 'pages': 0}
+        try:
+            path = attachment_path(item)
+            row['path'] = str(path)
+            if not path.is_file():
+                row['status'] = 'missing'
+            else:
+                with path.open('rb') as stream:
+                    signature = stream.read(1024)
+                if b'%PDF-' not in signature:
+                    raise ValueError('Local file does not have a PDF signature')
+                from pypdf import PdfReader
+                pdf = PdfReader(str(path))
+                if not pdf.pages:
+                    raise ValueError('PDF has no pages')
+                first = pdf.pages[0].extract_text() or ''
+                row.update(status='readable_pdf', pages=len(pdf.pages), sha256=digest(path),
+                           first_page_text=first,
+                           text_status='text_available' if first.strip() else 'ocr_or_visual_reading_required')
+        except ImportError:
+            raise  # Missing parser is a tool problem, not evidence of a bad PDF.
+        except Exception as error:
+            row.update(status='unreadable', error=str(error))
+        files.append(row)
+    result = {'machine_name': machine_name(), 'parent_key': parent['key'],
+              'parent_title': parent['data']['title'], 'doi': parent['data'].get('DOI', ''),
+              'files': files, 'usable_pdf_keys': [r['attachment_key'] for r in files if r['status'] == 'readable_pdf'],
+              'next_step': 'Verify PDF identity/version and distinguish main text from SI, then read the existing main PDF; download main text only if no usable matching main PDF exists.'}
+    if args.out:
+        write_json(args.out, result)
+    return result
+
+
 def make_html(source, title):
     try:
         import markdown
@@ -166,24 +209,64 @@ const actualDoi = parent.getField('DOI').replace(/^https?:\/\/(dx\.)?doi\.org\//
 if (actualDoi && plan.doi && actualDoi !== plan.doi.toLowerCase()) throw new Error('Parent DOI conflict');
 const stored = await IOUtils.readUTF8(plan.html_path);
 if (!stored.includes('endnote-summary-source-sha256:' + plan.markdown_sha256)) throw new Error('Source marker mismatch');
-let saved = null;
-for (const id of parent.getAttachments()) {
-  const item = await Zotero.Items.getAsync(id);
-  if (item.deleted || item.attachmentContentType !== 'text/html') continue;
-  const path = await item.getFilePathAsync();
-  if (path && await IOUtils.exists(path)) {
-    const old = await IOUtils.readUTF8(path);
-    if (old === stored) { saved = item; break; }
+const sameBytes = async (a, b) => {
+  const x = await IOUtils.read(a), y = await IOUtils.read(b);
+  return x.length === y.length && x.every((value, i) => value === y[i]);
+};
+const resourcePath = (base, relative) => {
+  const parts = relative.split('/');
+  if (!parts.length || parts.some(p => !p || p === '.' || p === '..' || /[:\\]/.test(p))) {
+    throw new Error('Unsafe image resource path');
+  }
+  return OS.Path.join(base, ...parts);
+};
+// Check all source resources before changing the library.
+for (const image of plan.images) {
+  if (!await IOUtils.exists(resourcePath(OS.Path.dirname(plan.markdown_path), image.path))) {
+    throw new Error('Markdown image source missing: ' + image.path);
   }
 }
-const reused = !!saved;
-if (!saved) saved = await Zotero.Attachments.importFromFile({
-  file: plan.html_path, parentItemID: parent.id,
-  title: plan.attachment_title, contentType: 'text/html', charset: 'utf-8'
-});
-const result = {status: reused ? 'already_present' : 'saved', machine_name: machine,
-  parent_key: parent.key, attachment_key: saved.key, parent_id: parent.id,
-  attachment_path: await saved.getFilePathAsync(), markdown_sha256: plan.markdown_sha256};
+const savedFormats = {};
+for (const spec of [
+  {format: 'html', path: plan.html_path, type: 'text/html', title: plan.attachment_title},
+  {format: 'markdown', path: plan.markdown_path, type: 'text/markdown', title: plan.markdown_attachment_title}
+]) {
+  let saved = null;
+  for (const id of parent.getAttachments()) {
+    const item = await Zotero.Items.getAsync(id);
+    if (item.deleted || item.attachmentLinkMode !== Zotero.Attachments.LINK_MODE_IMPORTED_FILE) continue;
+    const path = await item.getFilePathAsync();
+    const correctType = item.attachmentContentType === spec.type ||
+      (spec.format === 'markdown' && path && /\.md$/i.test(path));
+    if (correctType && path && await IOUtils.exists(path) && await sameBytes(path, spec.path)) {
+      saved = item; break;
+    }
+  }
+  const reused = !!saved;
+  // importFromFile manages its own transaction; do not nest another transaction.
+    if (!saved) saved = await Zotero.Attachments.importFromFile({
+      file: spec.path, parentItemID: parent.id,
+      title: spec.title, contentType: spec.type, charset: 'utf-8'
+    });
+    if (spec.format === 'markdown') {
+      const directory = OS.Path.dirname(await saved.getFilePathAsync());
+      for (const image of plan.images) {
+        const source = resourcePath(OS.Path.dirname(plan.markdown_path), image.path);
+        const target = resourcePath(directory, image.path);
+        await IOUtils.makeDirectory(OS.Path.dirname(target), {createAncestors: true, ignoreExisting: true});
+        if (await IOUtils.exists(target)) {
+          if (!await sameBytes(source, target)) throw new Error('Existing Markdown resource differs: ' + image.path);
+        } else {
+          await Zotero.File.copyFile(source, target);
+        }
+      }
+    }
+  savedFormats[spec.format] = {status: reused ? 'already_present' : 'saved',
+    attachment_key: saved.key, attachment_path: await saved.getFilePathAsync()};
+}
+const result = {machine_name: machine, parent_key: parent.key, parent_id: parent.id,
+  attachments: savedFormats, attachment_key: savedFormats.html.attachment_key,
+  attachment_path: savedFormats.html.attachment_path, markdown_sha256: plan.markdown_sha256};
 await Zotero.File.putContentsAsync(plan.native_result_path, JSON.stringify(result, null, 2));
 await Zotero.getActiveZoteroPane().selectItem(parent.id);
 return JSON.stringify(result, null, 2);
@@ -211,7 +294,10 @@ def prepare(args):
         evidence.append('normalized exact title')
     for item in children:
         if item['data'].get('contentType') == 'application/pdf':
-            path = attachment_path(item)
+            try:
+                path = attachment_path(item)
+            except (OSError, ValueError):
+                continue  # An unavailable old attachment must not block delivery.
             if path.is_file() and digest(path) == manifest['source_pdf']['sha256']:
                 evidence.append('source PDF SHA-256; attachment ' + item['key'])
     output, images = make_html(source, bib['title'])
@@ -224,17 +310,22 @@ def prepare(args):
             'doi': doi, 'match_evidence': evidence, 'markdown_path': str(source),
             'markdown_sha256': digest(source), 'html_path': str(html_path), 'html_sha256': digest(html_path),
             'images': images, 'attachment_title': '中文逐图总结 · ' + (doi or bib['title']),
+            'required_formats': ['html', 'markdown'],
+            'markdown_attachment_title': '中文逐图总结（Markdown） · ' + (doi or bib['title']),
             'native_result_path': str(root / 'zotero-native-result.json')}
     write_json(root / 'zotero-sync-plan.json', plan)
-    (root / 'zotero-attach.js').write_text(NATIVE.replace('__PLAN__', json.dumps(plan, ensure_ascii=False)), encoding='utf-8')
+    if getattr(args, 'legacy_script', False):
+        (root / 'zotero-attach.js').write_text(NATIVE.replace('__PLAN__', json.dumps(plan, ensure_ascii=False)), encoding='utf-8')
     manifest['delivery_mode'] = 'zotero_attachment'
     manifest['zotero'] = {'machine_name': machine_name(), 'parent_key': parent['key'], 'match_evidence': evidence,
                           'writeback_status': 'prepared', 'cloud_sync_status': 'not_verified'}
     manifest['outputs']['zotero_html'] = str(html_path)
+    manifest['outputs']['zotero_markdown'] = str(source)
     write_json(manifest_path, manifest)
-    return {'plan': str(root / 'zotero-sync-plan.json'), 'native_script': str(root / 'zotero-attach.js'),
+    return {'plan': str(root / 'zotero-sync-plan.json'), 'native_script': str(root / 'zotero-attach.js') if getattr(args, 'legacy_script', False) else None,
             'parent_key': parent['key'], 'match_evidence': evidence, 'embedded_images': len(images),
-            'machine_name': machine_name(), 'html_bytes': html_path.stat().st_size}
+            'machine_name': machine_name(), 'required_formats': plan['required_formats'],
+            'html_bytes': html_path.stat().st_size}
 
 
 def verify(args):
@@ -263,10 +354,36 @@ def verify(args):
         raise ValueError('Embedded image verification failed')
     if item['data'].get('parentItem') != plan['parent_key'] or item['data'].get('linkMode') != 'imported_file':
         raise ValueError('Attachment is not an imported child of the expected parent')
+    formats = {'html': {'attachment_key': item['key'], 'attachment_path': str(path),
+                        'sha256': digest(path), 'writeback_status': 'verified'}}
+    if 'markdown' in plan.get('required_formats', []):
+        md_matches = []
+        for candidate in children:
+            data = candidate['data']
+            if data.get('deleted') or data.get('contentType') not in ('text/markdown', 'text/plain', 'application/octet-stream'):
+                continue
+            md_path = attachment_path(candidate)
+            if md_path.suffix.casefold() == '.md' and md_path.is_file() and digest(md_path) == plan['markdown_sha256']:
+                md_matches.append((candidate, md_path))
+        if len(md_matches) != 1:
+            raise ValueError('Expected exactly one byte-identical Markdown attachment; found ' + str(len(md_matches)))
+        md_item, md_path = md_matches[0]
+        if md_item['data'].get('parentItem') != plan['parent_key'] or md_item['data'].get('linkMode') != 'imported_file':
+            raise ValueError('Markdown is not an imported child of the expected parent')
+        for resource in plan['images']:
+            image_path = (md_path.parent / resource['path']).resolve()
+            if not image_path.is_relative_to(md_path.parent.resolve()):
+                raise ValueError('Markdown image escapes attachment directory')
+            if not image_path.is_file() or digest(image_path) != resource['sha256']:
+                raise ValueError('Markdown image missing or changed: ' + resource['path'])
+        formats['markdown'] = {'attachment_key': md_item['key'], 'attachment_path': str(md_path),
+                               'sha256': digest(md_path), 'images_verified': len(plan['images']),
+                               'writeback_status': 'verified'}
     receipt = {'machine_name': machine_name(), 'parent_key': plan['parent_key'], 'attachment_key': item['key'],
                'attachment_path': str(path), 'html_sha256': digest(path), 'embedded_images_verified': len(images),
                'writeback_status': 'verified', 'cloud_sync_status': 'not_verified',
                'zotero_link': 'zotero://select/library/items/' + plan['parent_key']}
+    receipt['attachments'] = formats
     write_json(plan_path.parent / 'zotero-sync-receipt.json', receipt)
     manifest = read_json(plan['manifest'])
     manifest['zotero'] = {**manifest.get('zotero', {}), **receipt}
@@ -275,12 +392,77 @@ def verify(args):
     return receipt
 
 
+def save(args):
+    """Save through the official loopback API; never open Run JavaScript."""
+    from zotero_local_api import Client
+    if args.manifest:
+        prepared = prepare(args)
+        plan_path = Path(prepared['plan'])
+    else:
+        plan_path = args.plan.resolve(strict=True)
+    plan = read_json(plan_path)
+    if machine_name().casefold() != plan['machine_name'].casefold():
+        raise ValueError('Computer changed; prepare a new plan')
+    if digest(Path(plan['markdown_path'])) != plan['markdown_sha256'] or digest(Path(plan['html_path'])) != plan['html_sha256']:
+        raise ValueError('Source files changed since preparation')
+    client = Client()
+    client.connect()
+    # Validate source resources before adding either attachment.
+    for image in plan['images']:
+        resource = (Path(plan['markdown_path']).parent / image['path']).resolve()
+        if not resource.is_relative_to(Path(plan['markdown_path']).parent.resolve()) or digest(resource) != image['sha256']:
+            raise ValueError('Markdown image source missing or changed: ' + image['path'])
+    result = client.attach_file(parent_key=plan['parent_key'], parent_title=plan['parent_title'], doi=plan['doi'],
+                              path=plan['html_path'], title=plan['attachment_title'],
+                              receipt_path=plan_path.parent / 'zotero-api-result.json')
+    results = {'html': result}
+    if 'markdown' in plan.get('required_formats', []):
+        md_result = client.attach_file(parent_key=plan['parent_key'], parent_title=plan['parent_title'], doi=plan['doi'],
+                                     path=plan['markdown_path'], title=plan['markdown_attachment_title'],
+                                     receipt_path=plan_path.parent / 'zotero-api-markdown-result.json')
+        results['markdown'] = md_result
+        md_root = Path(md_result['attachment_path']).resolve(strict=True).parent
+        import shutil
+        for image in plan['images']:
+            source = (Path(plan['markdown_path']).parent / image['path']).resolve(strict=True)
+            target = (md_root / image['path']).resolve()
+            if not target.is_relative_to(md_root):
+                raise ValueError('Markdown resource escapes the registered attachment')
+            if target.exists():
+                if not target.is_file() or digest(target) != image['sha256']:
+                    raise ValueError('Existing Markdown resource differs: ' + image['path'])
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        # Only the dual-format verifier below may mark the entire delivery complete.
+        md_result['resources_copied'] = len(plan['images'])
+    receipt = verify(argparse.Namespace(plan=plan_path))
+    receipt['transport'] = 'official_local_api'
+    receipt['save_status'] = {kind: value['status'] for kind, value in results.items()}
+    write_json(plan_path.parent / 'zotero-sync-receipt.json', receipt)
+    manifest = read_json(plan['manifest'])
+    manifest['zotero'] = {**manifest.get('zotero', {}), **receipt}
+    write_json(plan['manifest'], manifest)
+    return receipt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
+    inspect = sub.add_parser('probe', help='Check existing local Zotero PDFs before downloading')
+    inspect.add_argument('--title', required=True)
+    inspect.add_argument('--doi', default='')
+    inspect.add_argument('--out', type=Path)
+    inspect.set_defaults(action=probe)
     prep = sub.add_parser('prepare')
     prep.add_argument('--manifest', type=Path, required=True)
+    prep.add_argument('--legacy-script', action='store_true', help='Explicit fallback only; not needed with configured Zotero 10')
     prep.set_defaults(action=prepare)
+    writer = sub.add_parser('save', help='Save and verify both formats via official Zotero 10 local API')
+    target = writer.add_mutually_exclusive_group(required=True)
+    target.add_argument('--manifest', type=Path)
+    target.add_argument('--plan', type=Path)
+    writer.set_defaults(action=save)
     check = sub.add_parser('verify')
     check.add_argument('--plan', type=Path, required=True)
     check.set_defaults(action=verify)
