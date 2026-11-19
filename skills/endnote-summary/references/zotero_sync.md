@@ -51,7 +51,7 @@ python scripts/zotero_sync.py save --manifest "本次文件夹/paper-HASH.match.
 
 客户端固定使用 `http://127.0.0.1:23119/api/`、个人库 `users/0`；校验本机、Zotero-Server-ID、父条目完整题名及 DOI。上传采用官方三阶段流程：新建 imported_file 子附件、申请上传、传输字节、注册文件。失败保留 pending journal，重试前检查目标条目，避免重复空附件；401/403/412 或身份冲突不静默重试、不自动重授权，不回退到 JavaScript 窗口。
 
-Windows 的本地授权凭据位于 `%LOCALAPPDATA%/CodexZotero/local-api.json`，密钥以当前 Windows 用户的 DPAPI 加密，不输出密钥、不放入文章文件夹或 Git、不复制 Zotero 配置中的原始密钥。官方授权本身可写所有用户有权编辑的库，不具备单条目权限；本客户端只开放已匹配父条目下的文件附件新增/上传，**不开放通用任意写入、删除或数据库接口**。
+Windows 的本地授权凭据位于 `%LOCALAPPDATA%/CodexZotero/local-api.json`，密钥以当前 Windows 用户的 DPAPI 加密，不输出密钥、不放入文章文件夹或 Git、不复制 Zotero 配置中的原始密钥。官方授权本身可写所有用户有权编辑的库，不具备单条目权限。此工作流的写入范围为已匹配父条目下的总结附件及该父条目的总结状态集合归属。
 
 ### 一次性授权与撤销
 
@@ -80,6 +80,19 @@ python scripts/zotero_sync.py verify --plan "本次文件夹/zotero-sync-plan.js
 验证必须分别确认：MD和HTML均存在于预期父条目；两者`linkMode`均为`imported_file`；各导入副本与对应源文件的SHA-256一致；HTML每个内嵌图像的解码哈希与原图一致；MD每个相对图片链接在其附件目录内可解析且哈希一致。新计划`required_formats`为`["html", "markdown"]`，只有两份及资源都通过才记`zotero.writeback_status: verified`；任一缺失或错误均不得宣称双格式入库成功。回执`attachments.html`和`attachments.markdown`分别记录附件key、路径、哈希及验证状态，保留机器名、父key和`zotero://select/library/items/KEY`。旧版无`required_formats`计划仅按旧HTML范围核验，不冒称新增MD。API 返回成功不足以替代验证。HTML 内的保存状态以最终 `zotero-sync-receipt.json` 为准，避免导入文件预先宣称成功。
 
 官方资料：[Zotero 10 Local API](https://www.zotero.org/support/dev/web_api/v3/local_api)、[文件上传](https://www.zotero.org/support/dev/web_api/v3/file_upload)。不得对外暴露端口；不需额外插件或后台服务。
+
+## 完成总结后的集合归档
+
+正文总结完成，且本机 Zotero 的两种总结和图片核验成功后，对本篇运行：
+
+```text
+python scripts/zotero_sync.py classify --plan "本次文件夹/zotero-sync-plan.json"
+```
+
+- 优先选择个人文库现有的「啊--已总结」。它不存在时，选择「已总结」「已完成总结」等明确等价的集合。遇到多个同类集合，优先匹配与本条目所在待总结集合同级、或该条目已在的唯一匹配集合。仍无法唯一确定时列出候选集合及层级，请用户指定，保留待总结归属。
+- 从本篇已加入的「啊--未总结」「未总结」「待总结」等明确同义集合移出。同一条目已属多个待总结集合时移出这些集合。保留其他集合归属和原书目及附件。无需先在 Zotero 选中该条目。
+- 脚本重新核对总结附件和父条目，按最新条目版本经原生 API 单次更新 `collections` 并回读核验。已归入正确集合时直接核验。回执 `zotero-collection-receipt.json` 记载目标集合、实际移出的集合和核验状态。报告成功或具体阻碍，遇版本冲突先复查当前状态。可用 `--dry-run` 只读预览。
+- 未完整阅读正文、仅有摘要或预览、双格式附件未通过核验时不分类。正文已完整总结并如实说明 SI 无法获取时可以按本流程归档。规则适用于随后完成的总结。补分类历史条目只在用户另行明确要求时执行。
 
 ## 本地保存与云同步的区别
 

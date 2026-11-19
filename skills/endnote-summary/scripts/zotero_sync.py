@@ -328,7 +328,7 @@ def prepare(args):
             'html_bytes': html_path.stat().st_size}
 
 
-def verify(args):
+def verify(args, *, persist=True):
     plan_path = args.plan.resolve(strict=True)
     plan = read_json(plan_path)
     if machine_name().casefold() != plan['machine_name'].casefold():
@@ -384,11 +384,12 @@ def verify(args):
                'writeback_status': 'verified', 'cloud_sync_status': 'not_verified',
                'zotero_link': 'zotero://select/library/items/' + plan['parent_key']}
     receipt['attachments'] = formats
-    write_json(plan_path.parent / 'zotero-sync-receipt.json', receipt)
-    manifest = read_json(plan['manifest'])
-    manifest['zotero'] = {**manifest.get('zotero', {}), **receipt}
-    manifest['delivery_mode'] = 'zotero_attachment'
-    write_json(plan['manifest'], manifest)
+    if persist:
+        write_json(plan_path.parent / 'zotero-sync-receipt.json', receipt)
+        manifest = read_json(plan['manifest'])
+        manifest['zotero'] = {**manifest.get('zotero', {}), **receipt}
+        manifest['delivery_mode'] = 'zotero_attachment'
+        write_json(plan['manifest'], manifest)
     return receipt
 
 
@@ -446,6 +447,112 @@ def save(args):
     return receipt
 
 
+def plan_collection_move(rows, memberships):
+    """Find the done collection and pending memberships in this personal library."""
+    done_labels = {
+        '已总结', '已经总结', '已完成总结', '总结已完成', '总结完成', '总结完毕',
+        '已做总结', 'summarized', 'summary completed', 'completed summaries',
+    }
+    pending_labels = {
+        '未总结', '尚未总结', '待总结', '待完成总结', '未完成总结', '未做总结',
+        'not summarized', 'not yet summarized', 'unsummarized', 'awaiting summary', 'pending summary',
+    }
+    fallback_labels = {'含中文总结', '含总结'}
+    status_labels = done_labels | pending_labels | fallback_labels
+    collections = {}
+    for row in rows:
+        data = row['data']
+        if not data.get('deleted'):
+            collections[row['key']] = {
+                'key': row['key'], 'name': data['name'], 'parent': data.get('parentCollection') or None,
+            }
+    labels = {}
+    for key, collection in collections.items():
+        name = unicodedata.normalize('NFKC', collection['name']).strip().casefold()
+        whole = re.sub(r'[-_\s]+', ' ', name)
+        parts = re.split(r'--+|\s+-\s+|[—–:/|]', name)
+        matches = {part.strip() for part in parts} & status_labels
+        labels[key] = whole if whole in status_labels else (matches.pop() if len(matches) == 1 else '')
+    pending = [collections[key] for key in memberships if labels.get(key) in pending_labels]
+    preferred = [c for c in collections.values()
+                 if re.sub(r'\s+', '', unicodedata.normalize('NFKC', c['name'])) == '啊--已总结']
+    targets = (preferred
+               or [c for key, c in collections.items() if labels[key] in done_labels]
+               or [c for key, c in collections.items() if labels[key] in fallback_labels])
+    if len(targets) > 1 and pending:
+        pending_parents = {c['parent'] for c in pending}
+        siblings = [c for c in targets if c['parent'] in pending_parents]
+        if siblings:
+            targets = siblings
+    if len(targets) > 1:
+        assigned = [c for c in targets if c['key'] in memberships]
+        if len(assigned) == 1:
+            targets = assigned
+    if len(targets) != 1:
+        choices = ', '.join(f"{c['name']} ({c['key']})" for c in targets) or 'none'
+        raise ValueError('Expected one existing finished-summary collection; candidates: ' + choices)
+    target = targets[0]
+    pending_keys = {c['key'] for c in pending}
+    updated = [key for key in memberships if key not in pending_keys]
+    if target['key'] not in updated:
+        updated.append(target['key'])
+    return target, pending, updated
+
+
+def classify(args):
+    """Update only collection memberships after both summary formats are verified."""
+    from zotero_local_api import Client
+
+    plan_path = args.plan.resolve(strict=True)
+    plan = read_json(plan_path)
+    manifest = read_json(plan['manifest'])
+    if manifest.get('summary_status') != 'ready' or set(plan.get('required_formats', [])) != {'html', 'markdown'}:
+        raise ValueError('Classification requires a packaged dual-format summary')
+    recorded = read_json(plan_path.parent / 'zotero-sync-receipt.json')
+    verification = verify(args, persist=False)
+    if (recorded.get('writeback_status') != 'verified'
+            or recorded.get('machine_name', '').casefold() != machine_name().casefold()
+            or recorded.get('parent_key') != verification['parent_key']
+            or recorded.get('attachments') != verification['attachments']):
+        raise ValueError('The verified summary does not match its saved attachment receipt')
+
+    client = Client()
+    status = client.connect()
+    key = plan['parent_key']
+    rows = []
+    while True:
+        batch = client.get('users/0/collections?' + urlencode({'limit': 100, 'start': len(rows)}))
+        rows.extend(batch)
+        if len(batch) < 100:
+            break
+    before = client.validate_parent(key, plan['parent_title'], plan['doi'])
+    old = before['data']['collections']
+    target, pending, updated = plan_collection_move(rows, old)
+    receipt = {
+        'machine_name': machine_name(), 'server_id': status['server_id'], 'parent_key': key,
+        'doi': plan['doi'], 'target': target, 'removed_pending_collections': pending,
+        'before_collections': old, 'after_collections': updated,
+        'before_version': before['version'], 'cloud_sync_status': 'not_verified',
+    }
+    if args.dry_run:
+        return {**receipt, 'collection_status': 'dry_run'}
+    if updated != old:
+        client.request('PATCH', 'users/0/items/' + key, obj={'collections': updated},
+                       headers={'If-Unmodified-Since-Version': str(before['version'])}, write=True)
+    after = client.validate_parent(key, plan['parent_title'], plan['doi'])
+    if set(after['data']['collections']) != set(updated):
+        raise ValueError('Zotero collection membership did not match after readback')
+    allowed_changes = {'collections', 'version', 'dateModified'}
+    other_before = {key: value for key, value in before['data'].items() if key not in allowed_changes}
+    other_after = {key: value for key, value in after['data'].items() if key not in allowed_changes}
+    if other_before != other_after:
+        raise ValueError('Unrelated item fields changed during collection verification')
+    receipt.update(collection_status='verified', after_version=after['version'],
+                   transport='official_local_api', action='updated' if updated != old else 'already_classified')
+    write_json(plan_path.parent / 'zotero-collection-receipt.json', receipt)
+    return receipt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -466,6 +573,10 @@ def main():
     check = sub.add_parser('verify')
     check.add_argument('--plan', type=Path, required=True)
     check.set_defaults(action=verify)
+    collections = sub.add_parser('classify', help='Move a verified summary from pending to finished collections')
+    collections.add_argument('--plan', type=Path, required=True)
+    collections.add_argument('--dry-run', action='store_true', help='Check the proposed collection change without writing')
+    collections.set_defaults(action=classify)
     args = parser.parse_args()
     try:
         print(json.dumps(args.action(args), ensure_ascii=False, indent=2))
