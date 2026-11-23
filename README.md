@@ -1,6 +1,6 @@
 # 个人 Skill 版本库
 
-保存本机新增或修改过的 skill。Git 记录每次保存的差异，GitHub 私有仓库提供远程备份。
+保存本机新增或修改过的 skill。Git 记录每次保存的差异，GitHub 仓库提供远程备份。当前备份仓库为公开仓库。
 
 ## 已纳入
 
@@ -10,13 +10,15 @@
 
 ## 保存当前版本并上传
 
-在本仓库目录打开终端，运行：
+在本机版本库的技能目录中编辑文件。定时备份使用当前的 `main` 分支和 `inventory.json` 所列个人技能范围。手动运行同一备份：
 
 ```powershell
-python scripts/skill_versions.py save -m "说明本次修改" --push
+python scripts/publish_local_skills.py
 ```
 
-该命令从实际使用的 skill 目录读取最新文件，保存版本并上传。直接在 GitHub 上修改备份，不会自动改变本机正在使用的 skill。仅保存本地版本时省略 `--push`。
+脚本提交已列入范围的本地技能改动，再将本机 `main` 上传至 `yuyuioio/personal-skills`。远程分支出现本机缺少的提交时，备份停止并保留本地版本。确认本地范围而不上传可加 `--check`。
+
+需要从另一个本机安装位置手动保存时，`skill_versions.py save` 仍可使用 `local-sources.json` 中的来源路径。
 
 ## 查看历史与当前差异
 
@@ -58,11 +60,9 @@ python scripts/skill_versions.py save -m "恢复 endnote-summary 到指定版本
 
 ## 自动备份
 
-此前曾创建“每小时备份个人 Skills 到 GitHub”。2026-10-16 迁移时，应用返回该任务已不存在；本次未重新创建。当前请按手动保存方式操作，自动备份状态以应用定时任务列表为准。
+本机 Windows 任务 `LocalAgentSkills-AutoSync` 每天 21:23 以登录用户身份运行 `scripts/publish_local_skills.py`。它以本机个人技能版本库为源，单向上传到现有 GitHub 仓库。上传结果和确认的提交号保存在 `~/.agents/skill-sync/cloud-backup-status.json`。
 
-任务使用本机安装目录，需要电脑开机、Codex 运行、相关目录和网络可用。该计划保存在 Codex 应用中，不是 Windows 后台任务；关闭应用后不保证执行。计划中的新增 skill 识别由聊天任务处理，独立运行保存脚本仍只读取 `local-sources.json` 配置范围。
-
-可以在 Codex 的定时任务中暂停、修改或删除，也可在原聊天中提出调整。任务标识：`skills-github`。
+需要把本机源目录中的技能重新安装到 Codex 等应用时，可手动运行 `~/.agents/skill-sync/Sync-Skills.ps1`。
 
 ## 共享目录
 
