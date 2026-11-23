@@ -7,6 +7,7 @@ import re
 import zipfile
 import xml.etree.ElementTree as E
 from pathlib import Path
+from fractions import Fraction
 from select_metrics import select_all
 
 NS={'c':'http://schemas.openxmlformats.org/drawingml/2006/chart',
@@ -35,7 +36,7 @@ def col_number(label):
 
 
 def verify(workbook,manifest,data):
-    assert manifest.get('version')==9,'Use the version 9 condition maxima, physical-point yield and two-summary manifest'
+    assert manifest.get('version')==10,'Use the version 10 manifest with the PCE review section'
     expected=select_all(data)
     assert manifest['selection']==expected,'Input selection changed'
     records={r['id']:dict(r,**expected['repeatedTests']['annotations'][str(r['id'])]) for r in data['uniqueRecords']}
@@ -133,6 +134,33 @@ def verify(workbook,manifest,data):
                 assert close(value(sheet,table_ref(table,p,statistics['gapIndex'])),abs(result['bestValue']-records[p['id']]['meta'][result['key']]))
                 assert abs(result['bestValue']-records[p['id']]['meta'][result['key']])<=result['maxAbsoluteGapAllowed']+1e-12
         assert set(result['bestIds'])<=set(result['selectedIds']),'Every tied candidate maximum must be retained'
+        reviews=[t for t in manifest['tableManifest'] if t['sheet']==sheet and t['role']=='pce-review']
+        assert len(reviews)==(result['metricName']=='PCE')
+        if reviews:
+            review,=reviews
+            excluded=next(t for t in manifest['tableManifest'] if t['sheet']==sheet and t['role']=='excluded')
+            assert table['averageRow'] < review['start'] <= review['bottom'] < excluded['start']
+            maximum=result['bestValue']
+            assert (maximum is None and value(sheet,'N4')=='无法计算') or (maximum is not None and close(value(sheet,'N4'),maximum))
+            if maximum:
+                m=Fraction(str(maximum))
+                gap={}
+                for i in result['excludedIds']:
+                    x=records[i]['meta'].get(result['key'])
+                    if isinstance(x,(int,float)) and math.isfinite(x):
+                        relative=abs(Fraction(str(x))-m)/abs(m)
+                        if relative<=Fraction(1,10):
+                            gap[i]=relative
+            else:
+                gap={}
+            assert [p['id'] for p in review['positions']]==list(gap)==result['pceReviewIds']
+            assert [p['id'] for p in excluded['positions']]==result['excludedIds']
+            assert review['averageRow'] is None
+            relative_index=review['labels'].index('距候选最大PCE相对偏差')
+            reason_index=review['labels'].index('未入选原因')
+            for p in review['positions']:
+                assert close(value(sheet,table_ref(review,p,relative_index)),gap[p['id']])
+                assert value(sheet,table_ref(review,p,reason_index))==result['excludedReasons'][str(p['id'])]
     summary=manifest['summaryManifest']
     assert summary['sheet']=='总结' and [s['kind'] for s in summary['sections']]==['independent','pce']
     assert summary['prefix']==['编号','Jsc (mA/cm²)','Voc (V)','FF (%)','PCE (%)','Pmax (mW)','Imax (mA)','Vmax (V)','Rs (Ω)','Rsh (Ω)','Isc (mA)','良品率 (a/b)','日期']

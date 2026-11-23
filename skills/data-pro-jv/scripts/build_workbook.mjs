@@ -77,6 +77,26 @@ function table(s,start,items,{extras=[],role='parameters',average=false}={}){
  return {sheet:s.name,start,bottom,dataBottom,averageRow,averageFormulas,end,orientation:'rows',role,positions,labels:defs.map(d=>d[0]),metricFields:defs.flatMap((d,i)=>d[2]?[{key:d[2],index:i}]:[]),sourceIndex:defs.length-1};
 }
 function tableRef(table,p,index){return `${col(index+1)}${p.row}`;}
+function buildPceReview(sheet,titleRow,records,result,formulas){
+ const relativeLabel='距候选最大PCE相对偏差';
+ const review=table(sheet,titleRow+1,records,{
+  extras:[['未入选原因',r=>result.excludedReasons[String(r.id)]],[relativeLabel,()=>null]],
+  role:'pce-review',
+ });
+ if(!records.length){
+  const desc=result.bestValue===null||result.bestValue===0?'候选最大PCE缺失或为0，无法比较':'无相对偏差≤10%的未入选记录';
+  line(sheet,review.start+1,desc);
+ }
+ const metricIndex=review.metricFields.find(f=>f.key===result.key).index;
+ const relativeIndex=review.labels.indexOf(relativeLabel);
+ for(const p of review.positions){
+  const pce=tableRef(review,p,metricIndex),relative=tableRef(review,p,relativeIndex);
+  formulas[relative]=`=IF(COUNT($N$4,${pce})<2,"无法计算",IF($N$4=0,"无法计算",ABS(${pce}-$N$4)/ABS($N$4)))`;
+  sheet.getRange(relative).formulas=[[formulas[relative]]];
+  sheet.getRange(relative).setNumberFormat('0.00000%');
+ }
+ return review;
+}
 const chartManifest=[],tableManifest=[],rawManifest=[],statisticsManifest=[],views=[];
 for(const [name,result] of Object.entries(selection.metrics)){
  const scopeRecords=records.filter(r=>result.scopeIds.includes(r.id));
@@ -116,7 +136,19 @@ for(const [name,result] of Object.entries(selection.metrics)){
  Object.assign(formulas,t.averageFormulas);
  const statistics={sheet:s.name,selectedRange,squareRange,metricIndex,deviationIndex,squareIndex,gapIndex,formulas};statisticsManifest.push(statistics);
  for(const p of t.positions)if(result.bestIds.includes(p.id))s.getRange(tableRef(t,p,metricIndex)).format.fill='#FEF3C7';
- const excludedStart=t.bottom+3;line(s,excludedStart,'未入选原始数据（完整记录仍保留于全部参数）');
+ let excludedStart=t.bottom+3;
+ if(result.metricName==='PCE'){
+  const reviewTitle=t.bottom+2;
+  line(s,reviewTitle,'PCE未入选记录（距候选最大PCE相对偏差≤10%）');
+  s.getRange(`A${reviewTitle}:J${reviewTitle}`).format.fill='#DCECE4';
+  s.getRange(`A${reviewTitle}`).format.font.bold=true;
+  const reviewIds=new Set(result.pceReviewIds);
+  const review=buildPceReview(s,reviewTitle,scopeRecords.filter(r=>reviewIds.has(r.id)),result,formulas);
+  tableManifest.push(review);
+  excludedStart=review.bottom+2;
+  views.push({sheet:s.name,range:`A${t.averageRow}:M${Math.min(excludedStart+2,reviewTitle+12)}`,label:`${name}_near_pce`});
+ }
+ line(s,excludedStart,'未入选原始数据（完整记录仍保留于全部参数）');
  const excluded=table(s,excludedStart+1,scopeRecords.filter(r=>!ids.has(r.id)),{extras:[['未入选原因',r=>result.excludedReasons[String(r.id)]]],role:'excluded'});tableManifest.push(excluded);
  if(gapIndex>=0){
   const retainedSet=new Set(selection.repeatedTests.selectedIds),refs=[];
@@ -280,7 +312,7 @@ for(const [kind,start] of [['independent',4],['pce',secondHeader]]){
 }
 views.unshift({sheet:overview.name,range:`A1:AA${bottom}`,label:'summary'});
 wb.recalculate();console.log((await wb.inspect({kind:'match',searchTerm:'#REF!|#DIV/0!|#VALUE!|#NAME\\?|#NUM!',options:{useRegex:true,maxResults:10},maxChars:1200})).ndjson);await (await SpreadsheetFile.exportXlsx(wb)).save(output);
-const manifest={version:9,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
+const manifest={version:10,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
 run('finalize_workbook.py',['--data',input,'--manifest',`${output}.manifest.json`,'--workbook',output]);
 if(options['--preview-dir']){const dir=path.resolve(options['--preview-dir']);await fs.mkdir(dir,{recursive:true});const final=await SpreadsheetFile.importXlsx(await FileBlob.load(output));for(const view of views){const png=await final.render({sheetName:view.sheet,range:view.range,scale:1.3,format:'png'});await fs.writeFile(path.join(dir,`${view.label}_preview.png`),new Uint8Array(await png.arrayBuffer()));}}
 console.log(JSON.stringify({saved:output,records:records.length,distributionCharts:chartManifest.length,jvCurves:0}));

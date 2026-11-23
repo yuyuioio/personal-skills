@@ -113,6 +113,22 @@ def condition_scopes(data):
     return scopes
 
 
+def pce_review_ids(records, excluded_ids, best_value):
+    if not finite(best_value) or best_value == 0:
+        return []
+    excluded = set(excluded_ids)
+    with localcontext() as context:
+        context.prec = 60
+        maximum = Decimal(str(best_value))
+        limit = abs(maximum) * Decimal('0.10')
+        return [
+            r['id'] for r in records
+            if r['id'] in excluded
+            and finite(r['meta'].get('Efficiency (%)'))
+            and abs(Decimal(str(r['meta']['Efficiency (%)'])) - maximum) <= limit
+        ]
+
+
 def select_all(data):
     records = data['uniqueRecords']
     if len({r['id'] for r in records}) != len(records):
@@ -142,6 +158,8 @@ def select_all(data):
                           conditionLabel=scope['label'], sourceFiles=scope['files'], metricName=name)
             result['excludedIds'] = [r['id'] for r in local if r['id'] not in result['selectedIds']]
             result['excludedReasons'].update({str(r['id']): repeated['annotations'][str(r['id'])]['repeatReason'] for r in local if r['id'] not in retained})
+            if name == 'PCE':
+                result['pceReviewIds'] = pce_review_ids(local, result['excludedIds'], result['bestValue'])
             metrics[metric_name] = result
             scope['metricNames'][name] = metric_name
     return dict(method='descending-prefix-inclusive-relative-rmse', policies=POLICIES,
