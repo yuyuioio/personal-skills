@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Workbook, SpreadsheetFile, FileBlob } from '@oai/artifact-tool';
 import { summaryMaximumHeaders, summaryMaximumSpecs } from './summary_maxima.mjs';
+import { violinPlot } from './violin_plot.mjs';
 
 const options={},argv=process.argv.slice(2);
 for(let i=0;i<argv.length;i+=2){
@@ -107,15 +108,18 @@ for(const [name,result] of Object.entries(selection.metrics)){
  s.getRange('A4:J4').format.rowHeight=35;s.getRange('B4:C4').format.font={name:'Arial',size:14,bold:true,color:blue};s.getRange('H4:J4').format.font={name:'Arial',size:14,bold:true,color:blue};
  s.getRange('B4').setNumberFormat(result.unit==='%'?'0.00000"%"':'0.00000');s.getRange('H4').setNumberFormat('0.00000000%');
  s.getRange('A5').values=[[`原始MSE (${result.unit==='%'?'百分点²':`(${result.unit})²`})`]];s.getRange('B5:C5').merge();s.getRange('D5:G5').merge();s.getRange('D5').values=[[`总体标准差 σ (${result.unit==='%'?'百分点':result.unit})`]];s.getRange('H5:J5').merge();s.getRange('B5').setNumberFormat('0.00000000');s.getRange('H5').setNumberFormat('0.00000000');s.getRange('A5:J5').format.rowHeight=25;
- const sigma=result.mse===null?null:Math.sqrt(result.mse);
  line(s,6,`${result.conditionLabel}。入选 ${result.count} / 有效 ${result.validCount} / 候选 ${result.candidateCount}。${result.status}。范围：${result.sourceFiles.join('、')}`);
  line(s,7,`相对均方根偏差 = √[Σ(x−均值)²/n] ÷ |均值|，≤ ${result.threshold*100}%。${result.maxAbsoluteGapAllowed===null?'':`PCE距候选最大值≤${result.maxAbsoluteGapAllowed}个百分点。`}修改后公式重算；重新筛选需重新运行。`);
  s.getRange('K4:L4').values=[['相对偏差上限',result.threshold]];s.getRange('L4').setNumberFormat('0.0%');
  s.getRange('K5:L5').values=[['最大绝对差上限（百分点）',result.maxAbsoluteGapAllowed]];
- const spreadNote=result.count>=2?'橙线：均值±1σ（标准差见H5，分母为n）。':'入选少于2点，不显示标准差标记。';
- line(s,8,`蓝点：入选原始值；绿线：均值；${spreadNote}横向位置仅用于错开重叠点。`);
  if(!result.passed||result.count<2)s.getRange('A6:J6').format.fill='#FEF3C7';
  const ids=new Set(result.selectedIds),selected=scopeRecords.filter(r=>ids.has(r.id));
+ const dataValues=selected.map(r=>r.meta[result.key]);
+ const plot=dataValues.length?violinPlot(dataValues):null;
+ const chartNote=plot?.type==='violin'?'青色轮廓为核密度，白箱为中间50%，横线为中位数。每点为一条入选记录。横向错位仅用于显示。':
+  plot?.type==='constant'?'入选值全相同。横线为中位数，散点在同一高度。':
+  plot?.type==='single'?'仅1个入选值。图中显示该实测点。':'本项没有可绘制的有效入选数据。';
+ line(s,8,chartNote);
  const deviationLabel=`与均值之差 (${result.unit})`,squareLabel=`偏差平方 ((${result.unit})²)`,gapLabel='距候选最大PCE (百分点)';
  const extraFields=[['原始测量序号',(_,i)=>i+1],[deviationLabel,()=>null],[squareLabel,()=>null],...(result.maxAbsoluteGapAllowed===null?[]:[[gapLabel,()=>null]])];
  const t=table(s,28,selected,{extras:extraFields,role:'selected',average:true});tableManifest.push(t);
@@ -157,31 +161,38 @@ for(const [name,result] of Object.entries(selection.metrics)){
   formulas.N4=refs.length?`=IF(COUNT(${refs.join(',')})=0,"无法计算",MAX(${refs.join(',')}))`:'="无法计算"';s.getRange('N4').formulas=[[formulas.N4]];s.getRange('N4').setNumberFormat('0.00000"%"');
  }
  const helper=excluded.bottom+4;
- if(selected.length){
-  const rawRefs=t.positions.map(p=>tableRef(t,p,metricIndex));
-  s.getRange(`A${helper}:B${helper}`).values=[['分布横向位置（无物理含义）',`${name} 入选原始值`]];
-  const xs=selected.map((_,i)=>1+(((i*.618033988749895)%1)-.5)*.24);
-  s.getRange(`A${helper+1}:A${helper+selected.length}`).values=xs.map(x=>[x]);
-  s.getRange(`B${helper+1}:B${helper+selected.length}`).formulas=rawRefs.map(ref=>[`=${ref}`]);
-  const entries=[{name:'入选原始值',kind:'points',ids:selected.map(r=>r.id),x:xs,y:selected.map(r=>r.meta[result.key]),xFormula:`'${s.name}'!$A$${helper+1}:$A$${helper+selected.length}`,yFormula:`'${s.name}'!$B$${helper+1}:$B$${helper+selected.length}`}];
-  s.getRange(`D${helper}:E${helper+2}`).values=[['均值横向位置','均值'],[.8,null],[1.2,null]];
-  for(const row of [helper+1,helper+2]){formulas[`E${row}`]='=$B$4';s.getRange(`E${row}`).formulas=[['=$B$4']];}
-  entries.push({name:'均值',kind:'mean',x:[.8,1.2],y:[result.mean,result.mean],xFormula:`'${s.name}'!$D$${helper+1}:$D$${helper+2}`,yFormula:`'${s.name}'!$E$${helper+1}:$E$${helper+2}`});
-  if(selected.length>=2){
-   s.getRange(`G${helper}:H${helper+2}`).values=[['标准差标记位置','均值±1σ'],[1.28,null],[1.28,null]];
-   formulas[`H${helper+1}`]='=$B$4-$H$5';formulas[`H${helper+2}`]='=$B$4+$H$5';s.getRange(`H${helper+1}:H${helper+2}`).formulas=[['=$B$4-$H$5'],['=$B$4+$H$5']];
-   entries.push({name:'均值±1σ（总体）',kind:'sd',x:[1.28,1.28],y:[result.mean-sigma,result.mean+sigma],xFormula:`'${s.name}'!$G$${helper+1}:$G$${helper+2}`,yFormula:`'${s.name}'!$H$${helper+1}:$H$${helper+2}`});
-  }
-  // Seed documented contiguous chart construction, then bind real per-series ranges.
+ if(plot){
+  const lineSets=plot.lines;
+  const pointSet={name:'入选原始值',kind:'points',ids:selected.map(r=>r.id),x:plot.pointX,y:dataValues};
+  const entries=[...lineSets,pointSet].map((spec,i)=>{
+   const xCol=col(1+3*i),yCol=col(2+3*i),first=helper+1,last=helper+spec.x.length;
+   s.getRange(`${xCol}${helper}:${yCol}${helper}`).values=[[`${spec.name} X`,`${spec.name} Y`]];
+   s.getRange(`${xCol}${first}:${xCol}${last}`).values=spec.x.map(value=>[value]);
+   const vertical=s.getRange(`${yCol}${first}:${yCol}${last}`);
+   if(spec.kind==='points'){
+    const refs=t.positions.map(p=>`=${tableRef(t,p,metricIndex)}`);
+    vertical.formulas=refs.map(formula=>[formula]);
+    refs.forEach((formula,j)=>{formulas[`${yCol}${first+j}`]=formula;});
+   }else vertical.values=spec.y.map(value=>[value]);
+   return {...spec,xFormula:`'${s.name}'!$${xCol}$${first}:$${xCol}$${last}`,
+    yFormula:`'${s.name}'!$${yCol}$${first}:$${yCol}$${last}`};
+  });
+  // Seed a contiguous chart, then bind each series to its own two columns.
   const seedCols=entries.length+1,seedEnd=col(12+entries.length);
   s.getRange(`L10:${seedEnd}12`).values=[['X',...entries.map(e=>e.name)],[1,...entries.map(e=>e.y[0])],[1.1,...entries.map(e=>e.y.at(-1))]];
   const chart=s.charts.add('scatter',s.getRange(`L10:${seedEnd}12`));
   entries.forEach((e,i)=>{chart.series.items[i].categoryFormula=e.xFormula;chart.series.items[i].formula=e.yFormula;chart.series.items[i].name=e.name;});
   s.getRange(`L10:${seedEnd}12`).values=Array.from({length:3},()=>Array(seedCols).fill(null));
-  chart.title=selected.length>=2?`${name} 分布与均值±1σ`:`${name} 单点与均值`;chart.titleTextStyle.fontSize=13;chart.titleTextStyle.typeface='Arial';chart.hasLegend=false;
-  chart.xAxis={title:{text:'水平位置仅用于错开重叠点'},numberFormatCode:';;;',numberFormatSourceLinked:false,textStyle:{typeface:'Arial',fontSize:11}};
-  chart.yAxis={title:{text:`${name} (${result.unit})`},numberFormatCode:'0.000',numberFormatSourceLinked:false,textStyle:{typeface:'Arial',fontSize:11}};
-  chart.setPosition('A10','J25');chartManifest.push({sheet:s.name,series:entries});
+  chart.title=`${name} 入选分布（n = ${selected.length}）`;
+  chart.titleTextStyle.fontSize=13;
+  chart.titleTextStyle.typeface='Arial';
+  chart.hasLegend=false;
+  chart.xAxis={numberFormatCode:';;;',numberFormatSourceLinked:false,textStyle:{typeface:'Arial',fontSize:11}};
+  const digits=Math.min(9,Math.max(2,Math.ceil(-Math.log10(plot.axis.step)-1e-10)));
+  chart.yAxis={title:{text:`${result.metricName} (${result.unit})`},
+    numberFormatCode:`0.${'0'.repeat(digits)}`,numberFormatSourceLinked:false,textStyle:{typeface:'Arial',fontSize:11}};
+  chart.setPosition('A10','J25');
+  chartManifest.push({sheet:s.name,series:entries,type:plot.type,axis:plot.axis,box:plot.box});
  }else line(s,14,'本项没有可绘制的有效入选数据');
  views.push({sheet:s.name,range:'A1:J37',label:name});
  views.push({sheet:s.name,range:`A${Math.max(28,t.averageRow-3)}:Q${t.averageRow+1}`,label:`${name}_averages`});
@@ -312,7 +323,7 @@ for(const [kind,start] of [['independent',4],['pce',secondHeader]]){
 }
 views.unshift({sheet:overview.name,range:`A1:AA${bottom}`,label:'summary'});
 wb.recalculate();console.log((await wb.inspect({kind:'match',searchTerm:'#REF!|#DIV/0!|#VALUE!|#NAME\\?|#NUM!',options:{useRegex:true,maxResults:10},maxChars:1200})).ndjson);await (await SpreadsheetFile.exportXlsx(wb)).save(output);
-const manifest={version:10,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
+const manifest={version:11,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
 run('finalize_workbook.py',['--data',input,'--manifest',`${output}.manifest.json`,'--workbook',output]);
 if(options['--preview-dir']){const dir=path.resolve(options['--preview-dir']);await fs.mkdir(dir,{recursive:true});const final=await SpreadsheetFile.importXlsx(await FileBlob.load(output));for(const view of views){const png=await final.render({sheetName:view.sheet,range:view.range,scale:1.3,format:'png'});await fs.writeFile(path.join(dir,`${view.label}_preview.png`),new Uint8Array(await png.arrayBuffer()));}}
 console.log(JSON.stringify({saved:output,records:records.length,distributionCharts:chartManifest.length,jvCurves:0}));

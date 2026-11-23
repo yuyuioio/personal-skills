@@ -4,6 +4,7 @@ import json
 import math
 import posixpath
 import re
+from statistics import quantiles
 import zipfile
 import xml.etree.ElementTree as E
 from pathlib import Path
@@ -36,7 +37,7 @@ def col_number(label):
 
 
 def verify(workbook,manifest,data):
-    assert manifest.get('version')==10,'Use the version 10 manifest with the PCE review section'
+    assert manifest.get('version')==11,'Use the version 11 manifest with violin chart series'
     expected=select_all(data)
     assert manifest['selection']==expected,'Input selection changed'
     records={r['id']:dict(r,**expected['repeatedTests']['annotations'][str(r['id'])]) for r in data['uniqueRecords']}
@@ -254,6 +255,7 @@ def verify(workbook,manifest,data):
     assert len(chart_files)==len(charts)
     tag=lambda name:'{'+NS['c']+'}'+name
     patches={}
+    violin_count=0
     for filename in chart_files:
         chart=E.fromstring(payload[filename])
         scatter=chart.find('.//c:scatterChart',NS)
@@ -265,10 +267,67 @@ def verify(workbook,manifest,data):
         assert len(series_list)==len(entry['series'])
         result=expected['metrics'][sheet[:-2]]
         selected=[r for r in data['uniqueRecords'] if r['id'] in result['selectedIds']]
-        dot=entry['series'][0]
+        dot=entry['series'][-1]
         assert dot['kind']=='points' and dot['ids']==[r['id'] for r in selected]
         assert dot['y']==[r['meta'][result['key']] for r in selected]
-        assert all(close(x,1+(((i*.618033988749895)%1)-.5)*.24) for i,x in enumerate(dot['x']))
+        assert all(.65<=x<=1.35 for x in dot['x'])
+        kinds=[s['kind'] for s in entry['series']]
+        if len(selected)==1:
+            assert entry['type']=='single' and kinds==['points'] and dot['x']==[1]
+        elif min(dot['y'])==max(dot['y']):
+            assert entry['type']=='constant' and kinds==['box','points']
+        else:
+            violin_count+=1
+            assert entry['type']=='violin'
+            assert kinds in (['densityFill','density','box','points'],['densityFill','density','boxFill','box','points'])
+            q1,median,q3=quantiles(dot['y'],n=4,method='inclusive')
+            w=[y for y in dot['y'] if q1-1.5*(q3-q1)<=y<=q3+1.5*(q3-q1)]
+            box=entry['box']
+            assert all(close(box[k],v) for k,v in (
+                ('q1',q1),('median',median),('q3',q3),('whiskerLow',min(w)),('whiskerHigh',max(w))))
+            assert box['band']>0
+            outline=entry['series'][1]
+            assert close(outline['x'][0],outline['x'][-1]) and close(outline['y'][0],outline['y'][-1])
+            for i in range(241):
+                assert close(outline['x'][i]+outline['x'][481-i],2)
+                assert close(outline['y'][i],outline['y'][481-i])
+        lower,upper=entry['axis']['min'],entry['axis']['max']
+        assert lower<upper and all(lower<=y<=upper for spec in entry['series'] for y in spec['y'])
+        x_id,y_id=[node.get('val') for node in scatter.findall('c:axId',NS)]
+        for axis in chart.findall('.//c:valAx',NS):
+            identity=axis.find('c:axId',NS).get('val')
+            assert identity in (x_id,y_id)
+            scaling=axis.find('c:scaling',NS)
+            for element in ('min','max'):
+                node=scaling.find('c:'+element,NS)
+                if node is not None:scaling.remove(node)
+            minimum,maximum=(.39,1.61) if identity==x_id else (lower,upper)
+            E.SubElement(scaling,tag('max'),{'val':str(maximum)})
+            E.SubElement(scaling,tag('min'),{'val':str(minimum)})
+            cross_at=axis.find('c:crossesAt',NS)
+            if cross_at is not None:
+                axis.remove(cross_at)
+                cross=E.Element(tag('crosses'))
+                axis.insert(list(axis).index(axis.find('c:crossAx',NS))+1,cross)
+            else:
+                cross=axis.find('c:crosses',NS)
+            if cross is None:
+                cross=E.Element(tag('crosses'))
+                axis.insert(list(axis).index(axis.find('c:crossAx',NS))+1,cross)
+            cross.set('val','min')
+            if identity==x_id:
+                for setting in ('majorGridlines','minorGridlines'):
+                    for node in axis.findall('c:'+setting,NS):axis.remove(node)
+                ticks=axis.find('c:tickLblPos',NS)
+                if ticks is not None:ticks.set('val','none')
+            else:
+                unit=axis.find('c:majorUnit',NS)
+                if unit is None:
+                    unit=E.Element(tag('majorUnit'))
+                    predecessor=axis.find('c:crossBetween',NS)
+                    if predecessor is None:predecessor=cross
+                    axis.insert(list(axis).index(predecessor)+1,unit)
+                unit.set('val',str(entry['axis']['step']))
         scatter.find('c:scatterStyle',NS).set('val','lineMarker')
         for index,(series,spec) in enumerate(zip(series_list,entry['series'])):
             for axis in ('x','y'):
@@ -286,23 +345,29 @@ def verify(workbook,manifest,data):
                 E.SubElement(cache,tag('ptCount'),{'val':str(len(actual))})
                 for i,v in enumerate(actual):
                     point=E.SubElement(cache,tag('pt'),{'idx':str(i)});E.SubElement(point,tag('v')).text=format(float(v),'.16g')
-            if spec['kind']=='mean':assert all(close(v,result['mean']) for v in spec['y'])
-            if spec['kind']=='sd':
-                sigma=math.sqrt(result['mse'])
-                assert len(selected)>=2 and all(close(a,b) for a,b in zip(spec['y'],[result['mean']-sigma,result['mean']+sigma]))
-            color={'points':'2563EB','mean':'15803D','sd':'D97706'}[spec['kind']]
+            kind=spec['kind']
+            color,thickness={'points':('117884',0),'densityFill':('D6EEF0',3.2),
+                'density':('41919A',1.2),'boxFill':('FFFFFF',2.8),'box':('173044',1.45)}[kind]
             for old in series.findall('c:marker',NS):series.remove(old)
-            marker=E.Element(tag('marker'));E.SubElement(marker,tag('symbol'),{'val':'circle' if spec['kind']=='points' else 'dash' if spec['kind']=='sd' else 'none'})
-            E.SubElement(marker,tag('size'),{'val':'6' if spec['kind']=='points' else '10'})
-            marker_shape=E.SubElement(marker,tag('spPr'));fill=E.SubElement(marker_shape,'{'+NS['a']+'}solidFill');E.SubElement(fill,'{'+NS['a']+'}srgbClr',{'val':color})
+            marker=E.Element(tag('marker'))
+            E.SubElement(marker,tag('symbol'),{'val':'circle' if kind=='points' else 'none'})
+            if kind=='points':
+                E.SubElement(marker,tag('size'),{'val':'5'})
+                marker_shape=E.SubElement(marker,tag('spPr'))
+                fill=E.SubElement(marker_shape,'{'+NS['a']+'}solidFill')
+                E.SubElement(fill,'{'+NS['a']+'}srgbClr',{'val':'C3E6E8'})
+                stroke=E.SubElement(marker_shape,'{'+NS['a']+'}ln',{'w':'11000'})
+                border=E.SubElement(stroke,'{'+NS['a']+'}solidFill')
+                E.SubElement(border,'{'+NS['a']+'}srgbClr',{'val':color})
             series.insert(list(series).index(series.find('c:xVal',NS)),marker)
             shape=series.find('c:spPr',NS)
             if shape is None:shape=E.Element(tag('spPr'));series.insert(2,shape)
             for old in shape.findall('a:ln',NS):shape.remove(old)
-            line=E.SubElement(shape,'{'+NS['a']+'}ln',{'w':'25400'})
-            if spec['kind']=='points':E.SubElement(line,'{'+NS['a']+'}noFill')
+            line=E.SubElement(shape,'{'+NS['a']+'}ln',{'w':str(int(thickness*12700)),'cap':'flat'})
+            if kind=='points':E.SubElement(line,'{'+NS['a']+'}noFill')
             else:
-                fill=E.SubElement(line,'{'+NS['a']+'}solidFill');E.SubElement(fill,'{'+NS['a']+'}srgbClr',{'val':color})
+                fill=E.SubElement(line,'{'+NS['a']+'}solidFill')
+                E.SubElement(fill,'{'+NS['a']+'}srgbClr',{'val':color})
             smooth=series.find('c:smooth',NS)
             if smooth is None:smooth=E.SubElement(series,tag('smooth'))
             smooth.set('val','0')
@@ -316,12 +381,12 @@ def verify(workbook,manifest,data):
         assert archive.testzip() is None
         for filename in chart_files:
             chart=E.fromstring(archive.read(filename));series=chart.findall('.//c:scatterChart/c:ser',NS)
-            assert series[0].find('c:marker/c:symbol',NS).get('val')=='circle'
-            assert series[0].find('c:spPr/a:ln/a:noFill',NS) is not None
+            assert series[-1].find('c:marker/c:symbol',NS).get('val')=='circle'
+            assert series[-1].find('c:spPr/a:ln/a:noFill',NS) is not None
             assert all(s.find('c:smooth',NS).get('val')=='0' for s in series)
             for s in series:
                 for axis in ('x','y'):assert '$L$11' not in s.find('c:'+axis+'Val/c:numRef/c:f',NS).text
-    return dict(verifiedDistributionCharts=len(chart_files),verticalParameterTables=len(manifest['tableManifest']),verticalRawScans=len(manifest['rawManifest']),jvCurves=0)
+    return dict(verifiedDistributionCharts=len(chart_files),violinCharts=violin_count,verticalParameterTables=len(manifest['tableManifest']),verticalRawScans=len(manifest['rawManifest']),jvCurves=0)
 
 
 def main():
