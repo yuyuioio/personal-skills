@@ -37,7 +37,7 @@ def col_number(label):
 
 
 def verify(workbook,manifest,data):
-    assert manifest.get('version')==11,'Use the version 11 manifest with violin chart series'
+    assert manifest.get('version')==12,'Use the version 12 manifest with per-metric tabs and the FF > 50% PCE panel'
     expected=select_all(data)
     assert manifest['selection']==expected,'Input selection changed'
     records={r['id']:dict(r,**expected['repeatedTests']['annotations'][str(r['id'])]) for r in data['uniqueRecords']}
@@ -51,7 +51,13 @@ def verify(workbook,manifest,data):
     required={name+'筛选' for name in expected['metrics']}|{'总结','全部参数','全部原始扫描'}
     if expected['repeatedTests']['repeatedPointCount']:required.update({'保留结果','重复测试对比'})
     assert set(sheets)==required
-    assert next(iter(sheets))=='总结','The first worksheet must contain both summaries'
+    order=['总结']+[scope['metricNames'][metric]+'筛选' for metric in ('PCE','Jsc','Voc','FF')
+                 for scope in expected['scopes']]
+    order+=['全部参数']
+    if expected['repeatedTests']['repeatedPointCount']:
+        order+=['保留结果','重复测试对比']
+    order+=['全部原始扫描']
+    assert list(sheets)==order, 'Worksheet tabs must be grouped by metric'
     strings=[]
     if 'xl/sharedStrings.xml' in payload:
         strings=[''.join(t.text or '' for t in si.iter('{'+NS['s']+'}t')) for si in E.fromstring(payload['xl/sharedStrings.xml'])]
@@ -117,8 +123,36 @@ def verify(workbook,manifest,data):
         for ref,expected_value in statistics.get('expectedValues',{}).items():
             actual=value(sheet,ref)
             assert (expected_value is None and actual=='无法计算') or (expected_value is not None and close(actual,expected_value)),(sheet,ref,actual,expected_value)
+    retained_ids=set(expected['repeatedTests']['selectedIds'])
+    ff50_by_sheet={}
     for name,result in expected['metrics'].items():
         sheet=name+'筛选'
+        ff50_tables=[t for t in manifest['tableManifest'] if t['sheet']==sheet and t['role']=='pce-ff50']
+        assert len(ff50_tables)==(result['metricName']=='PCE')
+        if ff50_tables:
+            ff50_table,=ff50_tables
+            ff50_by_sheet[sheet]=eligible=[
+                r for r in records.values() if r['id'] in retained_ids and r['id'] in result['scopeIds']
+                and isinstance(r['meta'].get('Fill Factor (%)'),(int,float))
+                and math.isfinite(r['meta']['Fill Factor (%)']) and r['meta']['Fill Factor (%)']>50
+                and isinstance(r['meta'].get(result['key']),(int,float)) and math.isfinite(r['meta'][result['key']])
+            ]
+            assert [p['id'] for p in ff50_table['positions']]==[r['id'] for r in eligible]
+            assert close(value(sheet,'L30'),50) and close(value(sheet,'L31'),len(eligible))
+            values=[r['meta'][result['key']] for r in eligible]
+            avg=math.fsum(values)/len(values) if values else None
+            variance=math.fsum((v-avg)**2 for v in values)/len(values) if values else None
+            sd=math.sqrt(variance) if variance is not None else None
+            cv=sd/abs(avg) if avg else None
+            for ref,want in [('B30',avg),('B31',variance),('H30',cv),('H31',sd),
+                             ('N30',max(values) if values else None)]:
+                actual=value(sheet,ref)
+                assert (actual=='无法计算' if want is None else close(actual,want)),(sheet,ref,actual,want)
+            square_index=ff50_table['labels'].index('PCE 偏差平方 (百分点²)')
+            for pos,v in zip(ff50_table['positions'],values):
+                assert close(value(sheet,table_ref(ff50_table,pos,square_index)),(v-avg)**2)
+            assert ff50_table['start']>next(t['bottom'] for t in manifest['tableManifest']
+                                            if t['sheet']==sheet and t['role']=='excluded')
         for ref,v in [('B4',result['mean']),('B5',result['mse']),('H5',math.sqrt(result['mse']) if result['mse'] is not None else None),('H4',result['relativeRmse'])]:
             actual=value(sheet,ref)
             assert (actual=='无法计算' and v is None) or (actual is not None and v is not None and close(actual,v))
@@ -250,7 +284,16 @@ def verify(workbook,manifest,data):
         assert a==b or ra==rb,'Series must be a single row or column'
         return [value(m[1],f'{column(c)}{r}') for r in range(ra,rb+1) for c in range(a,b+1)]
 
-    charts={entry['sheet']:entry for entry in manifest['chartManifest']}
+    charts={(entry['sheet'],entry['role']):entry for entry in manifest['chartManifest']}
+    wanted_charts={(name+'筛选','selected') for name,result in expected['metrics'].items() if result['selectedIds']}
+    wanted_charts.update((sheet,'pce-ff50') for sheet,rows in ff50_by_sheet.items() if rows)
+    assert set(charts)==wanted_charts
+    chart_by_first_x={}
+    for key,entry in charts.items():
+        row=entry['seedRow']
+        assert row==(36 if entry['role']=='pce-ff50' else 10)
+        chart_by_first_x[entry['series'][0]['xFormula']]=key
+        chart_by_first_x[f"'{entry['sheet']}'!$L${row+1}:$L${row+2}"]=key
     chart_files=[name for name in payload if '/charts/' in name and name.endswith('.xml')]
     assert len(chart_files)==len(charts)
     tag=lambda name:'{'+NS['c']+'}'+name
@@ -262,11 +305,12 @@ def verify(workbook,manifest,data):
         assert scatter is not None,'Expected native XY distribution chart'
         series_list=scatter.findall('c:ser',NS)
         first_x=series_list[0].find('c:xVal/c:numRef/c:f',NS).text
-        sheet=re.match(r"'(.+)'!",first_x)[1]
-        entry=charts.pop(sheet)
+        sheet,role=chart_by_first_x[first_x]
+        entry=charts.pop((sheet,role))
         assert len(series_list)==len(entry['series'])
         result=expected['metrics'][sheet[:-2]]
-        selected=[r for r in data['uniqueRecords'] if r['id'] in result['selectedIds']]
+        selected=ff50_by_sheet[sheet] if role=='pce-ff50' else [
+            r for r in data['uniqueRecords'] if r['id'] in result['selectedIds']]
         dot=entry['series'][-1]
         assert dot['kind']=='points' and dot['ids']==[r['id'] for r in selected]
         assert dot['y']==[r['meta'][result['key']] for r in selected]
@@ -334,7 +378,9 @@ def verify(workbook,manifest,data):
                 ref=series.find('c:'+axis+'Val/c:numRef',NS)
                 formula=spec[axis+'Formula']
                 exported=ref.find('c:f',NS).text
-                seed=f"'{sheet}'!${'L' if axis=='x' else column(13+index)}$11:${'L' if axis=='x' else column(13+index)}$12"
+                seed_column='L' if axis=='x' else column(13+index)
+                seed_start=entry['seedRow']+1
+                seed=f"'{sheet}'!${seed_column}${seed_start}:${seed_column}${seed_start+1}"
                 assert exported in (formula,seed),(sheet,index,axis,exported)
                 ref.find('c:f',NS).text=formula
                 actual=range_values(formula)

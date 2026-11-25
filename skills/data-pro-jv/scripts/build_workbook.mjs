@@ -99,7 +99,122 @@ function buildPceReview(sheet,titleRow,records,result,formulas){
  return review;
 }
 const chartManifest=[],tableManifest=[],rawManifest=[],statisticsManifest=[],views=[];
-for(const [name,result] of Object.entries(selection.metrics)){
+const metricOrder=['PCE','Jsc','Voc','FF'];
+const retainedSet=new Set(selection.repeatedTests.selectedIds);
+const ff50Threshold=50;
+
+function distributionChart(sheet,plot,items,table,metricIndex,formulas,settings){
+ const {helper,startRow,role,title,yLabel}=settings;
+ if(!plot){
+  line(sheet,startRow+4,'本项没有可绘图的有效数据');
+  return helper;
+ }
+ const dataValues=items.map(r=>r.meta[table.metricFields.find(f=>f.index===metricIndex).key]);
+ const pointSet={name:'实测值',kind:'points',ids:items.map(r=>r.id),x:plot.pointX,y:dataValues};
+ const entries=[...plot.lines,pointSet].map((spec,i)=>{
+  const xCol=col(1+3*i),yCol=col(2+3*i),first=helper+1,last=helper+spec.x.length;
+  sheet.getRange(`${xCol}${helper}:${yCol}${helper}`).values=[[`${spec.name} X`,`${spec.name} Y`]];
+  sheet.getRange(`${xCol}${first}:${xCol}${last}`).values=spec.x.map(value=>[value]);
+  const vertical=sheet.getRange(`${yCol}${first}:${yCol}${last}`);
+  if(spec.kind==='points'){
+   const refs=table.positions.map(p=>`=${tableRef(table,p,metricIndex)}`);
+   vertical.formulas=refs.map(formula=>[formula]);
+   refs.forEach((formula,j)=>{formulas[`${yCol}${first+j}`]=formula;});
+  }else vertical.values=spec.y.map(value=>[value]);
+  return {...spec,xFormula:`'${sheet.name}'!$${xCol}$${first}:$${xCol}$${last}`,
+   yFormula:`'${sheet.name}'!$${yCol}$${first}:$${yCol}$${last}`};
+ });
+ // Seed one contiguous chart, then bind the individual series to their columns.
+ const seedCols=entries.length+1,seedEnd=col(12+entries.length);
+ const seed=sheet.getRange(`L${startRow}:${seedEnd}${startRow+2}`);
+ seed.values=[['X',...entries.map(e=>e.name)],[1,...entries.map(e=>e.y[0])],[1.1,...entries.map(e=>e.y.at(-1))]];
+ const chart=sheet.charts.add('scatter',seed);
+ entries.forEach((e,i)=>{chart.series.items[i].categoryFormula=e.xFormula;chart.series.items[i].formula=e.yFormula;chart.series.items[i].name=e.name;});
+ seed.values=Array.from({length:3},()=>Array(seedCols).fill(null));
+ chart.title=title;
+ chart.titleTextStyle.fontSize=13;
+ chart.titleTextStyle.typeface='Arial';
+ chart.hasLegend=false;
+ chart.xAxis={numberFormatCode:';;;',numberFormatSourceLinked:false,textStyle:{typeface:'Arial',fontSize:11}};
+ const digits=Math.min(9,Math.max(2,Math.ceil(-Math.log10(plot.axis.step)-1e-10)));
+ chart.yAxis={title:{text:yLabel},numberFormatCode:`0.${'0'.repeat(digits)}`,
+  numberFormatSourceLinked:false,textStyle:{typeface:'Arial',fontSize:11}};
+ chart.setPosition(`A${startRow}`,`J${startRow+15}`);
+ chartManifest.push({sheet:sheet.name,role,seedRow:startRow,series:entries,type:plot.type,axis:plot.axis,box:plot.box});
+ return helper+Math.max(...entries.map(item=>item.x.length))+4;
+}
+
+function plotNote(plot){
+ if(plot?.type==='violin')return '青色轮廓为核密度，白箱为中间50%，横线为中位数。每点为一条入选记录。横向错位仅用于显示。';
+ if(plot?.type==='constant')return '入选值全相同。横线为中位数，散点在同一高度。';
+ if(plot?.type==='single')return '仅1个入选值。图中显示该实测点。';
+ return '本项没有可绘制的有效入选数据。';
+}
+
+function addFf50Panel(sheet,result,scopeRecords,excluded,formulas){
+ const eligible=scopeRecords.filter(r=>retainedSet.has(r.id)
+  &&Number.isFinite(r.meta['Fill Factor (%)'])&&r.meta['Fill Factor (%)']>ff50Threshold
+  &&Number.isFinite(r.meta[result.key]));
+ const values=eligible.map(r=>r.meta[result.key]);
+ const plot=values.length?violinPlot(values):null;
+ base(sheet,'A28:J52');
+ line(sheet,28,`${result.conditionLabel} PCE 分布（FF > ${ff50Threshold}%）`);
+ sheet.getRange('A28:J28').format.fill='#DCECE4';
+ sheet.getRange('A28').format.font={name:'Arial',size:14,bold:true,color:ink};
+ const title=excluded.bottom+3, squareLabel='PCE 偏差平方 (百分点²)';
+ line(sheet,title,`FF > ${ff50Threshold}% 的记录`);
+ const detail=table(sheet,title+1,eligible,{extras:[[squareLabel,()=>null]],role:'pce-ff50'});
+ tableManifest.push(detail);
+ const metricIndex=detail.metricFields.find(f=>f.key===result.key).index;
+ const squareIndex=detail.labels.indexOf(squareLabel);
+ const first=detail.start+1,last=detail.dataBottom;
+ const pceCol=col(metricIndex+1),squareCol=col(squareIndex+1);
+ const pceRange=`${pceCol}${first}:${pceCol}${last}`;
+ const squareRange=`${squareCol}${first}:${squareCol}${last}`;
+ for(const p of detail.positions){
+  const pce=tableRef(detail,p,metricIndex),square=tableRef(detail,p,squareIndex);
+  const formula=`=IF(ISNUMBER(${pce}),(${pce}-$B$30)^2,"")`;
+  formulas[square]=formula;
+  sheet.getRange(square).formulas=[[formula]];
+  sheet.getRange(square).setNumberFormat('0.00000000');
+ }
+ sheet.getRange('A30').values=[['平均 PCE (%)']];
+ sheet.getRange('A31').values=[['原始MSE (百分点²)']];
+ sheet.getRange('D30').values=[['相对均方根偏差（用户所称MSE）']];
+ sheet.getRange('D31').values=[['总体标准差 σ (百分点)']];
+ for(const range of ['B30:C30','B31:C31','D30:G30','D31:G31','H30:J30','H31:J31'])sheet.getRange(range).merge();
+ sheet.getRange('A30:J30').format.rowHeight=35;
+ sheet.getRange('A31:J31').format.rowHeight=25;
+ for(const range of ['B30:C30','H30:J30'])sheet.getRange(range).format.font={name:'Arial',size:14,bold:true,color:blue};
+ sheet.getRange('B30').setNumberFormat('0.00000"%"');
+ sheet.getRange('H30').setNumberFormat('0.00000000%');
+ sheet.getRange('B31').setNumberFormat('0.00000000');
+ sheet.getRange('H31').setNumberFormat('0.00000000');
+ sheet.getRange('K30:L30').values=[['FF 门槛',ff50Threshold]];
+ sheet.getRange('L30').setNumberFormat('0"%"');
+ sheet.getRange('K31').values=[['计算点数']];
+ sheet.getRange('M30').values=[['入选最大PCE']];
+ sheet.getRange('N30').setNumberFormat('0.00000"%"');
+ line(sheet,32,`${result.conditionLabel}。参与计算 ${eligible.length} / 本次逐点择优候选 ${result.candidateCount}。`);
+ line(sheet,33,'入选条件为 FF 严格大于50% 且 PCE 有效。相对均方根偏差 = 总体标准差 ÷ |均值|。');
+ line(sheet,34,plotNote(plot));
+ if(eligible.length<2)sheet.getRange('A32:J32').format.fill='#FEF3C7';
+ const panelFormulas={
+  B30:`=IF(L31=0,"无法计算",AVERAGE(${pceRange}))`,
+  B31:`=IF(L31=0,"无法计算",SUM(${squareRange})/L31)`,
+  H31:'=IF(L31=0,"无法计算",SQRT(B31))',
+  H30:'=IF(L31=0,"无法计算",IF(B30=0,"无法计算",H31/ABS(B30)))',
+  N30:`=IF(L31=0,"无法计算",MAX(${pceRange}))`,
+  L31:`=COUNT(${pceRange})`,
+  A32:`="${result.conditionLabel}。参与计算 "&L31&" / 本次逐点择优候选 ${result.candidateCount}。"&IF(L31=0,"无有效入选值。",IF(L31=1,"仅1点，无法评价离散性。",""))`,
+ };
+ for(const [ref,formula] of Object.entries(panelFormulas))sheet.getRange(ref).formulas=[[formula]];
+ Object.assign(formulas,panelFormulas);
+ return {detail,plot,eligible,metricIndex};
+}
+
+for(const name of metricOrder.flatMap(metric=>selection.scopes.map(scope=>scope.metricNames[metric]))){
+ const result=selection.metrics[name];
  const scopeRecords=records.filter(r=>result.scopeIds.includes(r.id));
  const s=wb.worksheets.add(`${name}筛选`);base(s,'A1:J26');width(s);s.tabColor=ink;
  line(s,2,`${name} 入选数据分布`);s.getRange('A2').format.font={name:'Arial',size:14,bold:true,color:ink};
@@ -116,15 +231,15 @@ for(const [name,result] of Object.entries(selection.metrics)){
  const ids=new Set(result.selectedIds),selected=scopeRecords.filter(r=>ids.has(r.id));
  const dataValues=selected.map(r=>r.meta[result.key]);
  const plot=dataValues.length?violinPlot(dataValues):null;
- const chartNote=plot?.type==='violin'?'青色轮廓为核密度，白箱为中间50%，横线为中位数。每点为一条入选记录。横向错位仅用于显示。':
-  plot?.type==='constant'?'入选值全相同。横线为中位数，散点在同一高度。':
-  plot?.type==='single'?'仅1个入选值。图中显示该实测点。':'本项没有可绘制的有效入选数据。';
- line(s,8,chartNote);
+ line(s,8,plotNote(plot));
+ const isPce=result.metricName==='PCE';
+ const selectedStart=isPce?54:28;
+ if(isPce)line(s,53,'正式 PCE 筛选的入选记录');
  const deviationLabel=`与均值之差 (${result.unit})`,squareLabel=`偏差平方 ((${result.unit})²)`,gapLabel='距候选最大PCE (百分点)';
  const extraFields=[['原始测量序号',(_,i)=>i+1],[deviationLabel,()=>null],[squareLabel,()=>null],...(result.maxAbsoluteGapAllowed===null?[]:[[gapLabel,()=>null]])];
- const t=table(s,28,selected,{extras:extraFields,role:'selected',average:true});tableManifest.push(t);
+ const t=table(s,selectedStart,selected,{extras:extraFields,role:'selected',average:true});tableManifest.push(t);
  const metricIndex=t.metricFields.find(f=>f.key===result.key).index,deviationIndex=t.labels.indexOf(deviationLabel),squareIndex=t.labels.indexOf(squareLabel),gapIndex=t.labels.indexOf(gapLabel);
- const first=t.positions[0]?.row??29,last=t.positions.at(-1)?.row??29,selectedRange=`$${col(metricIndex+1)}$${first}:$${col(metricIndex+1)}$${last}`,squareRange=`$${col(squareIndex+1)}$${first}:$${col(squareIndex+1)}$${last}`;
+ const first=t.positions[0]?.row??selectedStart+1,last=t.positions.at(-1)?.row??selectedStart+1,selectedRange=`$${col(metricIndex+1)}$${first}:$${col(metricIndex+1)}$${last}`,squareRange=`$${col(squareIndex+1)}$${first}:$${col(squareIndex+1)}$${last}`;
  const formulas={B4:`=IF(COUNT(${selectedRange})=0,"无法计算",AVERAGE(${selectedRange}))`,B5:`=IF(COUNT(${selectedRange})=0,"无法计算",SUM(${squareRange})/COUNT(${selectedRange}))`,H5:`=IF(COUNT(${selectedRange})=0,"无法计算",SQRT(B5))`,H4:`=IF(COUNT(${selectedRange})=0,"无法计算",IF(B4=0,"无法计算",H5/ABS(B4)))`};
  const literal=text=>`"${String(text).replaceAll('"','""')}"`;
  const gapRange=gapIndex<0?null:`$${col(gapIndex+1)}$${first}:$${col(gapIndex+1)}$${last}`;
@@ -155,47 +270,26 @@ for(const [name,result] of Object.entries(selection.metrics)){
  line(s,excludedStart,'未入选原始数据（完整记录仍保留于全部参数）');
  const excluded=table(s,excludedStart+1,scopeRecords.filter(r=>!ids.has(r.id)),{extras:[['未入选原因',r=>result.excludedReasons[String(r.id)]]],role:'excluded'});tableManifest.push(excluded);
  if(gapIndex>=0){
-  const retainedSet=new Set(selection.repeatedTests.selectedIds),refs=[];
+  const refs=[];
   for(const source of [t,excluded])for(const p of source.positions)if(retainedSet.has(p.id)&&Number.isFinite(byId.get(p.id).meta[result.key]))refs.push(tableRef(source,p,source.metricFields.find(f=>f.key===result.key).index));
   s.getRange('M4').values=[['候选最大PCE (%)']];
   formulas.N4=refs.length?`=IF(COUNT(${refs.join(',')})=0,"无法计算",MAX(${refs.join(',')}))`:'="无法计算"';s.getRange('N4').formulas=[[formulas.N4]];s.getRange('N4').setNumberFormat('0.00000"%"');
  }
- const helper=excluded.bottom+4;
- if(plot){
-  const lineSets=plot.lines;
-  const pointSet={name:'入选原始值',kind:'points',ids:selected.map(r=>r.id),x:plot.pointX,y:dataValues};
-  const entries=[...lineSets,pointSet].map((spec,i)=>{
-   const xCol=col(1+3*i),yCol=col(2+3*i),first=helper+1,last=helper+spec.x.length;
-   s.getRange(`${xCol}${helper}:${yCol}${helper}`).values=[[`${spec.name} X`,`${spec.name} Y`]];
-   s.getRange(`${xCol}${first}:${xCol}${last}`).values=spec.x.map(value=>[value]);
-   const vertical=s.getRange(`${yCol}${first}:${yCol}${last}`);
-   if(spec.kind==='points'){
-    const refs=t.positions.map(p=>`=${tableRef(t,p,metricIndex)}`);
-    vertical.formulas=refs.map(formula=>[formula]);
-    refs.forEach((formula,j)=>{formulas[`${yCol}${first+j}`]=formula;});
-   }else vertical.values=spec.y.map(value=>[value]);
-   return {...spec,xFormula:`'${s.name}'!$${xCol}$${first}:$${xCol}$${last}`,
-    yFormula:`'${s.name}'!$${yCol}$${first}:$${yCol}$${last}`};
+ const ff50=isPce?addFf50Panel(s,result,scopeRecords,excluded,formulas):null;
+ const helper=(ff50?.detail.bottom??excluded.bottom)+4;
+ const nextHelper=distributionChart(s,plot,selected,t,metricIndex,formulas,{
+  helper,startRow:10,role:'selected',title:`${name} 入选分布（n = ${selected.length}）`,yLabel:`${result.metricName} (${result.unit})`,
+ });
+ if(ff50){
+  distributionChart(s,ff50.plot,ff50.eligible,ff50.detail,ff50.metricIndex,formulas,{
+   helper:nextHelper,startRow:36,role:'pce-ff50',
+   title:`PCE 分布（FF > 50%，n = ${ff50.eligible.length}）`,yLabel:'PCE (%)',
   });
-  // Seed a contiguous chart, then bind each series to its own two columns.
-  const seedCols=entries.length+1,seedEnd=col(12+entries.length);
-  s.getRange(`L10:${seedEnd}12`).values=[['X',...entries.map(e=>e.name)],[1,...entries.map(e=>e.y[0])],[1.1,...entries.map(e=>e.y.at(-1))]];
-  const chart=s.charts.add('scatter',s.getRange(`L10:${seedEnd}12`));
-  entries.forEach((e,i)=>{chart.series.items[i].categoryFormula=e.xFormula;chart.series.items[i].formula=e.yFormula;chart.series.items[i].name=e.name;});
-  s.getRange(`L10:${seedEnd}12`).values=Array.from({length:3},()=>Array(seedCols).fill(null));
-  chart.title=`${name} 入选分布（n = ${selected.length}）`;
-  chart.titleTextStyle.fontSize=13;
-  chart.titleTextStyle.typeface='Arial';
-  chart.hasLegend=false;
-  chart.xAxis={numberFormatCode:';;;',numberFormatSourceLinked:false,textStyle:{typeface:'Arial',fontSize:11}};
-  const digits=Math.min(9,Math.max(2,Math.ceil(-Math.log10(plot.axis.step)-1e-10)));
-  chart.yAxis={title:{text:`${result.metricName} (${result.unit})`},
-    numberFormatCode:`0.${'0'.repeat(digits)}`,numberFormatSourceLinked:false,textStyle:{typeface:'Arial',fontSize:11}};
-  chart.setPosition('A10','J25');
-  chartManifest.push({sheet:s.name,series:entries,type:plot.type,axis:plot.axis,box:plot.box});
- }else line(s,14,'本项没有可绘制的有效入选数据');
- views.push({sheet:s.name,range:'A1:J37',label:name});
- views.push({sheet:s.name,range:`A${Math.max(28,t.averageRow-3)}:Q${t.averageRow+1}`,label:`${name}_averages`});
+  views.push({sheet:s.name,range:'A28:J52',label:`${name}_ff50`});
+ }
+ views.push({sheet:s.name,range:isPce?'A1:J26':'A1:J37',label:name});
+ views.push({sheet:s.name,range:`A${Math.max(selectedStart,t.averageRow-3)}:Q${t.averageRow+1}`,label:`${name}_averages`});
+
 }
 const all=wb.worksheets.add('全部参数');width(all);const allTable=table(all,1,records);all.freezePanes.freezeRows(1);tableManifest.push(allTable);views.push({sheet:all.name,range:`A1:J${Math.min(allTable.bottom,18)}`,label:'all'});
 if(selection.repeatedTests.repeatedPointCount){
@@ -267,7 +361,7 @@ for(const scope of selection.scopes){
 base(overview,`A${bottom+5}:F${Math.max(bottom+5,helperRow-1)}`);overview.getRange(`A${bottom+5}:F${Math.max(bottom+5,helperRow-1)}`).format.wrapText=true;
 function usableCount(result,sheet,stats){
  const tests=[`ISNUMBER('${sheet}'!H4)`,`'${sheet}'!H4<='${sheet}'!$L$4`];
- if(stats.gapIndex>=0){const first=tableManifest.find(t=>t.sheet===sheet&&t.role==='selected').positions[0]?.row??29,last=tableManifest.find(t=>t.sheet===sheet&&t.role==='selected').positions.at(-1)?.row??29;tests.push(`MAX('${sheet}'!$${col(stats.gapIndex+1)}$${first}:$${col(stats.gapIndex+1)}$${last})<='${sheet}'!$L$5`);}
+ if(stats.gapIndex>=0){const table=tableManifest.find(t=>t.sheet===sheet&&t.role==='selected');const first=table.positions[0]?.row??table.start+1,last=table.positions.at(-1)?.row??table.start+1;tests.push(`MAX('${sheet}'!$${col(stats.gapIndex+1)}$${first}:$${col(stats.gapIndex+1)}$${last})<='${sheet}'!$L$5`);}
  return `IF(AND(${tests.join(',')}),COUNT('${sheet}'!${stats.selectedRange}),0)`;
 }
 summaryLine(1,'四项独立筛选结果总结');summaryLine(2,'四项分别引用各自筛选均值，集合可以不同。末尾四项最大值取本条件逐点择优后的全部候选，各自可能来自不同记录。良品率分别列a/b；b合并同点重复测量，含无效点。CV=总体标准差÷均值绝对值。');
@@ -323,7 +417,7 @@ for(const [kind,start] of [['independent',4],['pce',secondHeader]]){
 }
 views.unshift({sheet:overview.name,range:`A1:AA${bottom}`,label:'summary'});
 wb.recalculate();console.log((await wb.inspect({kind:'match',searchTerm:'#REF!|#DIV/0!|#VALUE!|#NAME\\?|#NUM!',options:{useRegex:true,maxResults:10},maxChars:1200})).ndjson);await (await SpreadsheetFile.exportXlsx(wb)).save(output);
-const manifest={version:11,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
+const manifest={version:12,chartManifest,tableManifest,rawManifest,statisticsManifest,summaryManifest,selection};await fs.writeFile(`${output}.manifest.json`,JSON.stringify(manifest,null,2));
 run('finalize_workbook.py',['--data',input,'--manifest',`${output}.manifest.json`,'--workbook',output]);
 if(options['--preview-dir']){const dir=path.resolve(options['--preview-dir']);await fs.mkdir(dir,{recursive:true});const final=await SpreadsheetFile.importXlsx(await FileBlob.load(output));for(const view of views){const png=await final.render({sheetName:view.sheet,range:view.range,scale:1.3,format:'png'});await fs.writeFile(path.join(dir,`${view.label}_preview.png`),new Uint8Array(await png.arrayBuffer()));}}
 console.log(JSON.stringify({saved:output,records:records.length,distributionCharts:chartManifest.length,jvCurves:0}));

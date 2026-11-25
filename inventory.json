@@ -12,13 +12,13 @@
     "matlab_draw"
   ],
   "files": {
-    "skills/data-pro-jv/SKILL.md": "3fac0f954ef1c6b68107c91fb22554d0fc1c09d0dcd652000b0e5749e3e91bfb",
-    "skills/data-pro-jv/agents/openai.yaml": "80ab456a29a116a7f6c9df84bddc9ed085999d0f9c26b616e8441bd40cf582c8",
-    "skills/data-pro-jv/references/metric-selection.md": "560085be3a1bec447c19f826f943b94721a5ac11c196c2129b98a7aa54f6703e",
+    "skills/data-pro-jv/SKILL.md": "24dea331dccaf4e6831ce92747822c10b77e50b021a8304ecd436bc421a4270e",
+    "skills/data-pro-jv/agents/openai.yaml": "2675900b0f1aa949ddb80d2af84fc9dbb3d00b520a3436b3b751d83c5b0a1ac2",
+    "skills/data-pro-jv/references/metric-selection.md": "ab8c41d0e4c29b81501db2a29c8e5af142329b1b1ddadf5c458f1180fcabfb09",
     "skills/data-pro-jv/references/repeated-measurements.md": "5e5baff89154fcd805cc4b82f1585981ae8cb236d5997d09da2fe56a807f80c4",
-    "skills/data-pro-jv/scripts/build_workbook.mjs": "1becbcd2f1b0a423f84c0bcc5d6357a5c966fda9d02a1ceba1f0532e228b6fae",
+    "skills/data-pro-jv/scripts/build_workbook.mjs": "1ae14b153749c875b7732fc2e0a53a8299f8a449230607458afb964c4d30e76f",
     "skills/data-pro-jv/scripts/extract_jv.py": "41278766da1c9c7d1264d40332633198d3032f0a9fb28e696fea833db0bfdc7e",
-    "skills/data-pro-jv/scripts/finalize_workbook.py": "ee22214ec0981ea547e6f1fd7169e8debc52ad6d8fc71185905a83b946bba8cf",
+    "skills/data-pro-jv/scripts/finalize_workbook.py": "efa919a0b0ea684a82083eb35001ad26c831662e3f8d10041b26c0089b68745d",
     "skills/data-pro-jv/scripts/merge_batches.py": "7983d5d1fa272419f4804e90887671216154096b163f30d16212cbca319c5fb3",
     "skills/data-pro-jv/scripts/select_metrics.py": "35162655b943a031181c58c45147fe7e5dc348872c8a7c7eb61cfb46fb495349",
     "skills/data-pro-jv/scripts/select_repeated.py": "a1ce356b4f297f648c2b60ea804b5972842eb35cbf830bdd882dba7dafff786b",
